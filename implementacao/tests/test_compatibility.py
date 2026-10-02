@@ -19,8 +19,43 @@ class CompatibilityTests(unittest.TestCase):
                                     'DISPLAY': '', 'WAYLAND_DISPLAY': ''}):
             checks = compatibility.collect_checks()
         self.assertTrue(all(item.ok for item in checks))
-        self.assertTrue(all(item.name not in ('Sistema', 'Arquitetura', 'Sessão gráfica', 'GNOME ativo')
+        self.assertTrue(all(item.name not in ('Sistema', 'Sessão gráfica', 'GNOME ativo')
                             for item in checks))
+
+    def test_wrong_architecture_blocks_before_dependencies(self):
+        with patch.object(compatibility.platform, 'machine', return_value='aarch64'), \
+                patch.object(install, 'ensure_dependencies') as dependencies, \
+                patch.object(install, 'install_files') as mutate:
+            self.assertEqual(install.install(), 1)
+            dependencies.assert_not_called()
+            mutate.assert_not_called()
+
+    def test_native_loader_failure_is_reported(self):
+        def probe(command):
+            if command[0] == 'ldd':
+                return False, "version `GLIBC_2.38' not found"
+            return True, ''
+        with patch.object(compatibility, 'run', side_effect=probe):
+            check = next(item for item in compatibility.collect_checks()
+                         if item.name == 'Bibliotecas do cliente')
+        self.assertFalse(check.ok)
+        self.assertIn('GLIBC_2.38', check.detail)
+
+    def test_invalid_binary_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            (base / 'native').mkdir()
+            (base / 'native/ajr-freerdp').write_bytes(b'invalid binary')
+            checks = compatibility.collect_package_checks(base)
+        self.assertFalse(next(item for item in checks if item.name == 'Arquitetura do cliente').ok)
+
+    def test_ldd_missing_library_with_zero_exit_status_is_rejected(self):
+        def probe(command):
+            return (True, 'libX11.so.6 => not found') if command[0] == 'ldd' else (True, '')
+        with patch.object(compatibility, 'run', side_effect=probe):
+            check = next(item for item in compatibility.collect_checks()
+                         if item.name == 'Bibliotecas do cliente')
+        self.assertFalse(check.ok)
 
     def test_install_blocked_before_mutation(self):
         with patch.object(install, 'check_compatibility', return_value=False), \

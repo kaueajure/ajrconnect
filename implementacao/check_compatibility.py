@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import platform
 import re
 import shutil
 import subprocess
@@ -60,7 +61,7 @@ ctypes.CDLL('libfreerdp-client2.so.2')
 '''
 
 
-def collect_checks(base=BASE):
+def collect_package_checks(base=BASE):
     checks = []
     checks.append(Check('Usuário', os.geteuid() != 0,
                         'A instalação é por usuário.',
@@ -69,6 +70,39 @@ def collect_checks(base=BASE):
     checks.append(Check('Arquivos do pacote', not missing,
                         'Ausentes: ' + ', '.join(missing) if missing else 'Componentes presentes.',
                         'Extraia novamente o pacote completo; ele deve incluir o cliente já compilado.'))
+    binary = base / 'native/ajr-freerdp'
+    machine = platform.machine().lower()
+    expected = {'x86_64': (2, 62), 'amd64': (2, 62), 'aarch64': (2, 183),
+                'arm64': (2, 183), 'i386': (1, 3), 'i686': (1, 3),
+                'armv7l': (1, 40)}.get(machine)
+    try:
+        with binary.open('rb') as stream:
+            header = stream.read(20)
+        valid = (len(header) == 20 and header[:4] == b'\x7fELF'
+                 and header[5] in (1, 2))
+        actual = (header[4], int.from_bytes(header[18:20],
+                  'little' if header[5] == 1 else 'big')) if valid else None
+    except OSError:
+        actual = None
+    checks.append(Check('Arquitetura do cliente', platform.system() == 'Linux'
+                        and expected is not None and actual == expected,
+                        f'Sistema: {platform.system()} {machine}; ELF do cliente: {actual}.',
+                        'Use um pacote compilado para sua arquitetura ou compile os fontes '
+                        'com python3 native/build.py. O download publicado é Linux x86_64.'))
+    return checks
+
+
+def check_package(base=BASE):
+    checks = collect_package_checks(base)
+    for check in checks:
+        if not check.ok:
+            print('FALHA — ' + check.name + ': ' + check.detail)
+            print('  Como resolver: ' + check.remedy)
+    return all(check.ok for check in checks)
+
+
+def collect_checks(base=BASE):
+    checks = collect_package_checks(base)
     for command, package in [('xrandr', 'x11-xserver-utils'),
                              ('secret-tool', 'libsecret-tools')]:
         checks.append(Check(command, shutil.which(command) is not None,
@@ -82,6 +116,12 @@ def collect_checks(base=BASE):
          'não substitua bibliotecas por versões diferentes.')]:
         ok, detail = run([sys.executable, '-c', code])
         checks.append(Check(name, ok, detail, remedy))
+    if all(check.ok for check in checks[:3]):
+        ok, detail = run(['ldd', str(base / 'native/ajr-freerdp')])
+        checks.append(Check('Bibliotecas do cliente', ok and 'not found' not in detail,
+                            'Bibliotecas resolvidas.' if ok and 'not found' not in detail else detail,
+                            'Verifique as bibliotecas exigidas pelo binário, incluindo glibc, '
+                            'e a disponibilidade de ldd. Se necessário, compile neste sistema.'))
     return checks
 
 

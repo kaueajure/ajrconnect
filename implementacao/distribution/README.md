@@ -1,5 +1,7 @@
 # AJR Connect 6
 
+Versão de teste: **6.0.0-beta.4**.
+
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
 ## Requisitos de execução
@@ -8,6 +10,11 @@ O instalador não bloqueia por distribuição, versão do GNOME, X11 ou Wayland.
 O binário fornecido é Linux x86_64 e requer GTK4/libadwaita, PyGObject,
 bibliotecas X11 e FreeRDP/WinPR 2.11.5. A AJR Bar é opcional e compatível
 com GNOME 46; em outros desktops, use os controles da janela do aplicativo.
+Antes de instalar dependências, o instalador verifica se o binário corresponde
+à arquitetura do sistema. Antes de copiar o aplicativo, verifica também as
+bibliotecas vinculadas ao cliente, incluindo glibc, com `ldd`.
+Para outra arquitetura ou um sistema com bibliotecas mais antigas, compile
+os fontes no destino com as dependências de desenvolvimento necessárias.
 O aplicativo conecta a servidores Windows com RDP disponível, incluindo VMs
 hospedadas em Docker; Docker não é necessário no computador do cliente.
 
@@ -24,6 +31,7 @@ python3 install.py
 A verificação lista somente os componentes e dependências necessários para executar o cliente. No modo de instalação, as dependências
 ausentes são instaladas pelos repositórios do sistema. A senha de administrador
 pode ser solicitada apenas nessa etapa. O aplicativo é instalado por usuário.
+O instalador usa as listas de pacotes existentes e não executa `apt-get update`.
 O modo `--check` apenas verifica e não instala pacotes.
 São necessários Python 3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1,
 x11-xserver-utils, libsecret-tools,
@@ -32,6 +40,15 @@ libfreerdp2-2t64, libfreerdp-client2-2t64 e libwinpr2-2t64
 dependências devem ser instaladas pelo gerenciador do sistema.
 As três bibliotecas RDP devem estar na versão 2.11.5; o cliente também
 depende das bibliotecas X11 e demais bibliotecas resolvidas pelo sistema.
+
+Se o APT falhar com `NO_PUBKEY`, corrija a chave/configuração do repositório
+indicado conforme o fornecedor ou desative essa fonte se não a utiliza.
+Para `deb.anydesk.com`, consulte https://deb.anydesk.com/howto.html.
+Se as listas de pacotes estiverem desatualizadas, execute `sudo apt-get update`
+manualmente após corrigir a fonte e repita a instalação.
+Um aviso sobre repositório sem suporte a `i386` não significa que este
+computador seja incompatível. O instalador preserva o diagnóstico do APT
+e interrompe a instalação sem alterar as fontes ou ignorar assinaturas.
 
 Se a AJR Bar for instalada, saia da sessão e entre novamente para carregá-la.
 Abra AJR Connect pelo menu de aplicativos. Informe servidor, usuário, senha,

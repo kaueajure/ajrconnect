@@ -3,7 +3,7 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.3**. A instalação em um Zorin recém-instalado
+Versão de teste: **6.0.0-beta.4**. A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
 ## Instalação em outras distribuições
@@ -12,11 +12,20 @@ O download e a instalação não bloqueiam por nome ou versão da distribuição
 versão do GNOME, X11, Wayland ou ausência de uma sessão gráfica ativa.
 O pacote compilado é Linux x86_64 e precisa de GTK4/libadwaita, PyGObject,
 bibliotecas X11 e FreeRDP/WinPR 2.11.5 para executar.
+O instalador verifica a arquitetura antes de instalar dependências e verifica
+as bibliotecas exigidas pelo binário, incluindo glibc, antes de copiar o aplicativo.
+O pacote não é exclusivo do Zorin, mas essas dependências precisam ser compatíveis.
+Para outra arquitetura ou bibliotecas de sistema mais antigas, compile os fontes
+no sistema de destino; isso também exige as dependências de desenvolvimento.
 
 Dependências ausentes são instaladas automaticamente em sistemas com APT,
 aceitando os nomes de pacotes com ou sem `t64`. Em outros gerenciadores,
 a instalação segue se as dependências já estão disponíveis; se faltarem,
 o instalador informa o que instalar.
+O instalador usa as listas de pacotes que já existem no computador e não
+executa `apt-get update`. A instalação depende de elas conterem versões
+disponíveis para as dependências; se estiverem vazias ou antigas, será
+necessário atualizá-las manualmente após corrigir eventuais fontes com erro.
 
 A AJR Bar é uma integração opcional para GNOME 46. Em outros desktops ou
 versões do GNOME, o cliente é instalado com os controles na janela do
@@ -83,7 +92,7 @@ Para gerar os pacotes localmente, execute `python3 package.py` a partir de
 
 ## Validação e problemas
 
-Os dez testes de compatibilidade, instalação e restauração passaram na
+Os testes de compatibilidade, instalação e restauração passaram na
 máquina de desenvolvimento, usando diretórios de usuário temporários e
 configurações GNOME em memória. Os pacotes extraídos passaram na verificação
 de compatibilidade e o cliente foi recompilado a partir dos fontes distribuídos.
@@ -94,6 +103,27 @@ preservação de extensões existentes, nomes de pacotes sem `t64`, dependência
 pré-instaladas sem APT e bloqueio de arquivos com integridade incorreta.
 
 As validações em uma instalação limpa e em outros desktops reais ainda estão pendentes.
+
+### APT: chave de repositório ausente
+
+Se aparecer `NO_PUBKEY A2FB21D5A8772835` junto de `deb.anydesk.com`,
+o APT interrompeu a atualização por uma falha na assinatura do repositório
+do AnyDesk. O download do AJR já pode ter sido concluído corretamente.
+O aviso `doesn't support architecture 'i386'` de outro repositório não é
+a causa dessa interrupção e não informa a arquitetura principal da máquina.
+
+Corrija a chave e a configuração da fonte do AnyDesk conforme as
+[instruções oficiais](https://deb.anydesk.com/howto.html), conferindo também
+entradas antigas ou duplicadas em `/etc/apt/sources.list` e
+`/etc/apt/sources.list.d/`. Se não utiliza esse repositório, desative somente
+essa fonte pelo gerenciador de repositórios do sistema. Depois execute
+`sudo apt-get update` e repita a instalação do AJR **sem sudo**.
+O instalador consulta as listas de pacotes já existentes, sem executar
+`apt-get update`. Se não houver versões disponíveis ou o download de um
+pacote falhar, informa o erro e interrompe antes de copiar o aplicativo.
+Não altera chaves ou fontes de outros aplicativos e mantém a verificação
+de assinatura dos pacotes.
+
 Relate problemas em [Issues](https://github.com/kaueajure/ajrconnect/issues),
 informando sistema, versões, monitor e passos para reproduzir.
 Não inclua senhas ou dados pessoais de registros e capturas.

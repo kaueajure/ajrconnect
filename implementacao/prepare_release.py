@@ -7,7 +7,7 @@ import re
 import tarfile
 
 BASE = Path(__file__).resolve().parent
-TAG = 'v6.0.0-beta.3'
+TAG = 'v6.0.0-beta.4'
 ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
@@ -25,15 +25,33 @@ saia da sessão e entre novamente para ativá-la.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect 6.0.0-beta.3 — versão de teste
+    return f'''# AJR Connect 6.0.0-beta.4 — versão de teste
 
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado
 e AJR Bar para controlar sessões Windows no GNOME 46.
 
+## Correção da instalação
+
+As dependências ausentes continuam sendo instaladas automaticamente pelo APT,
+usando as listas de pacotes existentes. O instalador não executa `apt-get update`,
+evitando que uma falha na atualização de outro repositório, como o AnyDesk,
+interrompa essa etapa. Se as listas estiverem antigas ou vazias, será necessário
+corrigir eventuais falhas e atualizá-las manualmente.
+
+O instalador simula a transação antes de solicitar sudo, valida a arquitetura
+do cliente antes de instalar dependências e verifica as bibliotecas vinculadas,
+incluindo glibc, antes de copiar o aplicativo. Falhas do APT agora incluem o
+comando, código de saída e diagnóstico, com orientação para erros de assinatura.
+As verificações de assinatura dos pacotes são preservadas.
+
+Foram aprovados 36 testes automatizados na máquina de desenvolvimento,
+incluindo instalação sem atualização das listas, erros de assinatura,
+arquitetura incompatível, bibliotecas ausentes e instalação/restauração isoladas.
+
 ## Instalação sem bloqueio de ambiente
 
 O instalador não exige uma distribuição, versão do GNOME, X11, Wayland
-ou sessão gráfica ativa específicos. Verifica somente as dependências
+ou sessão gráfica ativa específicos. Verifica a arquitetura e as dependências
 necessárias para executar o cliente. O pacote compilado é Linux x86_64,
 com GTK4/libadwaita, PyGObject, X11 e FreeRDP/WinPR 2.11.5.
 
@@ -117,7 +135,7 @@ def prepare(repository, output):
     original = (repository_dir / 'README.md').read_text()
     original = original.replace('# AJR Connect 6\n',
         '# AJR Connect 6 — versão de teste\n\n'
-        'Versão atual: **6.0.0-beta.3**. A instalação em um Zorin recém-instalado\n'
+        'Versão atual: **6.0.0-beta.4**. A instalação em um Zorin recém-instalado\n'
         'ainda precisa ser validada.\n\n'
         '## Download da versão de teste\n\n' + download_commands(repository) + '\n', 1)
     (repository_dir / 'README.md').write_text(original)

@@ -17,11 +17,12 @@ curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash
 O comando baixa a versão de teste, verifica a integridade e executa o
 instalador por usuário. Ele instala as dependências ausentes usando APT e
 pode solicitar a senha de administrador apenas nessa etapa.
+Usa as listas de pacotes existentes, sem executar `apt-get update`.
 Configurações existentes são preservadas.
 Abra AJR Connect pelo menu. Se a AJR Bar for instalada, saia da sessão e entre novamente.
 
 [Código-fonte e instruções](https://github.com/kaueajure/ajrconnect) ·
-[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.3)
+[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.4)
 
 Apache 2.0. A validação em um Zorin recém-instalado ainda está pendente.
 

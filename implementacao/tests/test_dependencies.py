@@ -1,5 +1,6 @@
 """Exercise dependency plans without sudo, network or system package changes."""
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 from unittest.mock import patch
@@ -10,6 +11,49 @@ import install
 
 
 class DependencyTests(unittest.TestCase):
+    def test_anydesk_signature_failure_reports_cause_and_remedy(self):
+        output = ("Err:13 https://deb.anydesk.com all InRelease\n"
+                  "NO_PUBKEY A2FB21D5A8772835\n"
+                  "N: Skipping acquire of configured file 'main/binary-i386/Packages'\n")
+        result = subprocess.CompletedProcess([], 100, output,
+                    "E: The repository 'https://deb.anydesk.com all InRelease' is not signed.")
+        with patch.object(deps.subprocess, 'run', return_value=result):
+            with self.assertRaises(deps.DependencyError) as failure:
+                deps.run(['sudo', 'apt-get', 'update'])
+        message = str(failure.exception)
+        for expected in ('sudo apt-get update', '100', 'NO_PUBKEY A2FB21D5A8772835',
+                         'assinatura/chave GPG', 'https://deb.anydesk.com/howto.html'):
+            self.assertIn(expected, message)
+
+    def test_i386_notice_alone_does_not_block_apt(self):
+        result = subprocess.CompletedProcess([], 0, '',
+                    "N: Skipping acquire: repository doesn't support architecture 'i386'")
+        with patch.object(deps.subprocess, 'run', return_value=result):
+            deps.run(['sudo', 'apt-get', 'update'])
+
+    def test_signature_warning_with_cached_indexes_still_blocks(self):
+        result = subprocess.CompletedProcess([], 0, '',
+                    'W: GPG error: https://deb.anydesk.com NO_PUBKEY A2FB21D5A8772835')
+        with patch.object(deps.subprocess, 'run', return_value=result):
+            with self.assertRaises(deps.DependencyError):
+                deps.run(['sudo', 'apt-get', 'update'])
+
+    def test_install_signature_error_is_explained_without_update(self):
+        result = subprocess.CompletedProcess([], 100, '',
+                    'E: https://deb.anydesk.com NO_PUBKEY A2FB21D5A8772835')
+        with patch.object(deps.subprocess, 'run', return_value=result):
+            with self.assertRaises(deps.DependencyError) as failure:
+                deps.run(['sudo', 'apt-get', 'install', 'python3'])
+        self.assertIn('https://deb.anydesk.com/howto.html', str(failure.exception))
+
+    def test_network_failure_is_not_reported_as_signature_error(self):
+        result = subprocess.CompletedProcess([], 100, '', 'Temporary failure resolving host')
+        with patch.object(deps.subprocess, 'run', return_value=result):
+            with self.assertRaises(deps.DependencyError) as failure:
+                deps.run(['sudo', 'apt-get', 'update'])
+        self.assertIn('Temporary failure resolving host', str(failure.exception))
+        self.assertNotIn('assinatura/chave GPG', str(failure.exception))
+
     def plan(self, missing=(), candidate='2.11.5+dfsg1-1build2', failure=None):
         calls = []
         completed = [False]
@@ -56,10 +100,12 @@ class DependencyTests(unittest.TestCase):
         self.assertIn('libsecret-tools', transaction)
         self.assertIn('libfreerdp-client2-2t64=2.11.5+dfsg1-1build2', transaction)
         self.assertIn('--no-remove', transaction)
+        self.assertFalse(any('update' in command for command in calls))
         self.assertNotIn('gnome-shell', transaction)
         self.assertNotIn('--allow-downgrades', transaction)
         simulation = next(command for command in calls if '--simulate' in command)
         self.assertLess(calls.index(simulation), calls.index(transaction))
+        self.assertLess(calls.index(simulation), calls.index(['sudo', '-v']))
 
     def test_incompatible_candidate_stops_before_package_install(self):
         for version in ('3.0.0', '(none)'):
@@ -77,7 +123,7 @@ class DependencyTests(unittest.TestCase):
             load.assert_not_called()
 
     def test_apt_failure_stops_transaction(self):
-        for stage in ('update', '--simulate', 'install'):
+        for stage in ('--simulate', 'install'):
             with self.subTest(stage=stage):
                 result, calls = self.plan(missing=('libsecret-tools',),
                                           failure=lambda command: stage in command)
@@ -85,6 +131,7 @@ class DependencyTests(unittest.TestCase):
                 if stage != 'install':
                     self.assertFalse(any(command[:2] == ['sudo', 'apt-get'] and 'install' in command
                                          for command in calls))
+                    self.assertNotIn(['sudo', '-v'], calls)
 
     def test_install_scope_has_no_desktop_or_distribution_gate(self):
         with patch.dict(deps.os.environ, {'XDG_CURRENT_DESKTOP': 'KDE', 'XDG_SESSION_TYPE': 'x11'}), \

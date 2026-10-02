@@ -25,10 +25,33 @@ def run(command, capture=True):
                                 env=dict(os.environ, LC_ALL='C'))
     except OSError as error:
         raise DependencyError(str(error)) from error
-    if result.returncode:
-        detail = (result.stderr or result.stdout or '').strip() if capture else ''
-        raise DependencyError('Falha ao executar ' + command[0] +
-                              (': ' + detail if detail else '.'))
+    detail = '\n'.join(part.strip() for part in (result.stdout, result.stderr) if part).strip() if capture else ''
+    signature_failure = ('apt-get' in command and
+                         any(marker in detail for marker in
+                             ('NO_PUBKEY', 'EXPKEYSIG', 'BADSIG', 'not signed')))
+    # APT may return zero while reusing stale indexes for a failing repository.
+    if result.returncode or signature_failure:
+        remedy = ''
+        if signature_failure:
+            remedy = ('\nO APT bloqueou um repositório por falha de assinatura/chave GPG. '
+                      'Corrija a chave e a configuração desse repositório conforme o fornecedor, '
+                      'ou desative somente essa fonte se não a utiliza. '
+                      'Se as listas estiverem desatualizadas, execute sudo apt-get update '
+                      'manualmente antes de tentar novamente. '
+                      'Um aviso sobre i386 não indica a arquitetura deste computador.')
+            if 'deb.anydesk.com' in detail:
+                remedy += '\nAnyDesk: https://deb.anydesk.com/howto.html'
+        elif 'apt-get' in command and 'install' in command:
+            remedy = ('\nO instalador não atualiza as listas de pacotes. Se estiverem '
+                      'desatualizadas, corrija eventuais falhas de repositório e '
+                      'execute sudo apt-get update manualmente.')
+        raise DependencyError('Falha ao executar ' + ' '.join(command) +
+                              ' (código ' + str(result.returncode) + ')' +
+                              (': ' + detail if detail else '.') + remedy)
+    if capture and command[:2] == ['sudo', 'apt-get'] and result.stdout:
+        print(result.stdout, end='', flush=True)
+    if capture and command[:2] == ['sudo', 'apt-get'] and result.stderr:
+        print(result.stderr, end='', file=sys.stderr, flush=True)
     return result.stdout or ''
 
 
@@ -116,9 +139,8 @@ def ensure_dependencies():
         if not shutil.which('sudo'):
             raise DependencyError('sudo não está disponível para instalar as dependências.')
         print('Dependências ausentes: ' + ', '.join(missing), flush=True)
-        print('Será solicitada a senha de administrador apenas para instalar esses pacotes.', flush=True)
-        run(['sudo', '-v'], capture=False)
-        run(['sudo', 'apt-get', 'update'], capture=False)
+        print('Consultando as listas de pacotes já disponíveis; o instalador não executa apt-get update.',
+              flush=True)
         requests = []
         for package in missing:
             if package in RDP_CHOICES:
@@ -129,14 +151,25 @@ def ensure_dependencies():
                         selected = choice + '=' + candidate
                         break
                 if not selected:
-                    raise DependencyError('O repositório não oferece FreeRDP/WinPR 2.11.5 '
-                                          'para ' + package + '.')
+                    raise DependencyError('As listas de pacotes disponíveis não oferecem '
+                                          'FreeRDP/WinPR 2.11.5 para ' + package + '. '
+                                          'Se estiverem desatualizadas, corrija eventuais '
+                                          'falhas de repositório e execute sudo apt-get update '
+                                          'manualmente antes de tentar novamente.')
                 requests.append(selected)
             else:
                 requests.append(package)
         options = ['--no-remove', '--no-install-recommends']
-        run(['apt-get', '--simulate', *options, 'install', *requests])
-        run(['sudo', 'apt-get', '--yes', *options, 'install', *requests], capture=False)
+        try:
+            run(['apt-get', '--simulate', *options, 'install', *requests])
+        except DependencyError as error:
+            raise DependencyError(str(error) + '\nA simulação usou as listas de pacotes '
+                                  'existentes. Se estiverem desatualizadas, corrija '
+                                  'eventuais falhas de repositório e execute '
+                                  'sudo apt-get update manualmente.') from error
+        print('Será solicitada a senha de administrador apenas para instalar esses pacotes.', flush=True)
+        run(['sudo', '-v'], capture=False)
+        run(['sudo', 'apt-get', '--yes', *options, 'install', *requests])
         for package in PACKAGES + RDP_PACKAGES:
             version = package_version(package)
             if not version or (package in RDP_PACKAGES and not compatible_rdp_version(version)):

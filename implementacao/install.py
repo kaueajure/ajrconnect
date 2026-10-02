@@ -10,7 +10,7 @@ import argparse
 import sys
 import tempfile
 import re
-from check_compatibility import check_compatibility
+from check_compatibility import check_compatibility, check_package
 from dependencies import ensure_dependencies
 
 BASE = Path(__file__).resolve().parent
@@ -25,6 +25,8 @@ DESKTOP = HOME / '.local/share/applications/ajr-connect.desktop'
 BACKUP = DATA / 'backups' / ('v6-' + datetime.now().strftime('%Y%m%d-%H%M%S-%f'))
 
 def install():
+    if not check_package(BASE):
+        return 1
     if not ensure_dependencies():
         return 1
     # Complete all read-only checks before creating backups or changing settings.
