@@ -7,7 +7,7 @@ import re
 import tarfile
 
 BASE = Path(__file__).resolve().parent
-TAG = 'v6.0.0-beta.1'
+TAG = 'v6.0.0-beta.2'
 ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
@@ -25,7 +25,7 @@ saia da sessão e entre novamente.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect 6.0.0-beta.1 — versão de teste
+    return f'''# AJR Connect 6.0.0-beta.2 — versão de teste
 
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado
 e AJR Bar para controlar sessões Windows no GNOME 46.
@@ -44,6 +44,7 @@ arquivos e configurações. Outros ambientes ainda não foram validados.
 - AJR Bar no topo central: minimizar, sair de fullscreen e desconectar.
 - Compartilhamento de pastas e área de transferência.
 - Instalação por usuário, atalho no menu, backup e restauração.
+- Instalação automática das dependências ausentes pelo APT, com sudo somente nessa etapa.
 - Novas instalações começam sem servidor, usuário ou pastas preenchidos.
 
 O perfil usa renderização por software e não ativa `/gfx`, `/gdi:hw`
@@ -107,7 +108,7 @@ def prepare(repository, output):
     original = (repository_dir / 'README.md').read_text()
     original = original.replace('# AJR Connect 6\n',
         '# AJR Connect 6 — versão de teste\n\n'
-        'Versão atual: **6.0.0-beta.1**. A instalação em um Zorin recém-instalado\n'
+        'Versão atual: **6.0.0-beta.2**. A instalação em um Zorin recém-instalado\n'
         'ainda precisa ser validada.\n\n'
         '## Download da versão de teste\n\n' + download_commands(repository) + '\n', 1)
     (repository_dir / 'README.md').write_text(original)

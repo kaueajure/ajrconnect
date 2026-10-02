@@ -12,6 +12,7 @@ import sys
 
 BASE = Path(__file__).resolve().parent
 FILES = ('ajr_app.py', 'core.py', 'x11.py', 'ajr-control', 'ajr-connect',
+         'dependencies.py',
          'ajr-connect.desktop.in',
          'enable-extension.py', 'extensao/extension.js', 'extensao/stylesheet.css',
          'extensao/metadata.json', 'native/ajr-freerdp')
@@ -136,7 +137,7 @@ def collect_checks(base=BASE):
         ('GNOME ativo', SHELL_PROBE,
          'Execute na sessão GNOME 46 do usuário; ela precisa oferecer D-Bus e seus esquemas.'),
         ('Bibliotecas RDP', LIBRARY_PROBE,
-         'Instale libfreerdp2-2, libfreerdp-client2-2 e libwinpr2-2 na versão 2.11.5; '
+         'Instale libfreerdp2-2t64, libfreerdp-client2-2t64 e libwinpr2-2t64 na versão 2.11.5; '
          'não substitua bibliotecas por versões diferentes.')]:
         ok, detail = run([sys.executable, '-c', code])
         checks.append(Check(name, ok, detail, remedy))

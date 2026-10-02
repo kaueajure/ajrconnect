@@ -20,10 +20,13 @@ python3 install.py
 ```
 
 A verificação lista os requisitos ausentes e bloqueia a instalação se o
-ambiente não corresponde ao alvo. O instalador não baixa dependências.
+ambiente não corresponde ao alvo. No modo de instalação, as dependências
+ausentes são instaladas pelos repositórios do sistema. A senha de administrador
+pode ser solicitada apenas nessa etapa. O aplicativo é instalado por usuário.
+O modo `--check` apenas verifica e não instala pacotes.
 São necessários Python 3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1,
 gnome-shell, xwayland, x11-xserver-utils, libsecret-tools,
-libfreerdp2-2, libfreerdp-client2-2 e libwinpr2-2.
+libfreerdp2-2t64, libfreerdp-client2-2t64 e libwinpr2-2t64.
 As três bibliotecas RDP devem estar na versão 2.11.5; o cliente também
 depende das bibliotecas X11 e demais bibliotecas resolvidas pelo sistema.
 

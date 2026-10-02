@@ -26,6 +26,7 @@ class CompatibilityTests(unittest.TestCase):
 
     def test_install_blocked_before_mutation(self):
         with patch.object(install, 'check_compatibility', return_value=False), \
+                patch.object(install, 'ensure_dependencies', return_value=True), \
                 patch.object(install, 'install_files') as mutate:
             self.assertEqual(install.install(), 1)
             mutate.assert_not_called()

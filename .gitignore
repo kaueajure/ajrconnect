@@ -18,6 +18,7 @@
 !/implementacao/install.py
 !/implementacao/rollback.py
 !/implementacao/check_compatibility.py
+!/implementacao/dependencies.py
 !/implementacao/package.py
 !/implementacao/prepare_release.py
 !/implementacao/distribution/
@@ -58,6 +59,7 @@
 !/implementacao/tests/test_compatibility.py
 !/implementacao/tests/test_distribution.py
 !/implementacao/tests/test_bootstrap.py
+!/implementacao/tests/test_dependencies.py
 
 # Ignore generated or personal files even inside allowed source directories.
 __pycache__/

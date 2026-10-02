@@ -3,7 +3,7 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.1**. A instalação em um Zorin recém-instalado
+Versão de teste: **6.0.0-beta.2**. A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
 ## Ambiente suportado
@@ -26,6 +26,11 @@ curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash
 O comando baixa a versão de teste, confere a integridade e executa o
 instalador. Ele verifica o ambiente antes de alterar arquivos, preserva as
 configurações existentes e cria um backup. Execute **sem sudo**.
+Se faltarem dependências, a senha de administrador será solicitada para
+instalá-las pelo APT. Apenas pacotes ausentes são solicitados; as bibliotecas
+FreeRDP/WinPR devem manter a versão 2.11.5. O instalador simula a transação
+antes de executá-la, não permite remoções e não faz downgrade automático.
+Se todas as dependências já estiverem instaladas, não usa sudo.
 Após instalar, saia da sessão GNOME e entre novamente para carregar a AJR Bar.
 
 Para apenas verificar o ambiente:
@@ -75,6 +80,8 @@ O cliente também foi testado com uma VM real em dois monitores.
 
 O comando único possui quatro verificações adicionais: ajuda, sessão gráfica,
 execução sem sudo e bloqueio de download com integridade incorreta.
+Há oito testes adicionais do planejamento de dependências, incluindo versões
+incompatíveis, falhas do APT e bloqueio da instalação do aplicativo após falha.
 
 Essas verificações ainda não substituem um teste em uma instalação limpa do Zorin.
 Relate problemas em [Issues](https://github.com/kaueajure/ajrconnect/issues),
