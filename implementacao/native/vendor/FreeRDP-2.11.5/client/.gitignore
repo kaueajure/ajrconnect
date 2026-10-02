@@ -1,0 +1,4 @@
+# AJR ships only the X11 frontend, not other platform clients.
+/*
+!/.gitignore
+!/X11/

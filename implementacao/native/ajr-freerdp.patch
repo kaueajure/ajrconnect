@@ -1,0 +1,367 @@
+--- a/client/X11/xfreerdp.h
++++ b/client/X11/xfreerdp.h
+@@ -124,6 +124,11 @@
+ {
+ 	rdpContext context;
+ 	DEFINE_RDP_CLIENT_COMMON();
++    BOOL ajr_pending, ajr_grabbed, ajr_return_down;
++    UINT32 ajr_token;
++    UINT64 ajr_deadline;
++    unsigned long ajr_state[8];
++
+ 
+ 	GC gc;
+ 	int xfds;
+--- a/client/X11/xf_client.c
++++ b/client/X11/xf_client.c
+@@ -94,6 +94,7 @@
+ #include "xf_tsmf.h"
+ #endif
+ #include "xf_event.h"
++#include "ajr.h"
+ #include "xf_input.h"
+ #include "xf_cliprdr.h"
+ #include "xf_disp.h"
+@@ -282,7 +283,11 @@
+ 
+ 	if (!xfc->fullscreen)
+ 	{
+-		xf_ResizeDesktopWindow(xfc, xfc->window, settings->DesktopWidth, settings->DesktopHeight);
++		/* AJR keeps the local viewport independent of server framebuffer resets. */
++        if (!settings->SmartSizing)
++            xf_ResizeDesktopWindow(xfc, xfc->window, settings->DesktopWidth, settings->DesktopHeight);
++        else if (xfc->window)
++            xf_draw_screen(xfc, 0, 0, settings->DesktopWidth, settings->DesktopHeight);
+ 	}
+ 	else
+ 	{
+@@ -316,6 +321,9 @@
+ 	HGDI_RGN cinvalid;
+ 	xfContext* xfc = (xfContext*)context;
+ 	rdpGdi* gdi = context->gdi;
++    if (getenv("AJR_DIAGNOSTIC"))
++        fprintf(stderr, "AJR_DIAG paint fullscreen=%d suppressed=%d invalid=%d\n",
++                xfc->fullscreen, gdi->suppressOutput, !gdi->primary->hdc->hwnd->invalid->null);
+ 
+ 	if (gdi->suppressOutput)
+ 		return TRUE;
+@@ -518,6 +526,7 @@
+ 			break;
+ 	}
+ 
++	xf_ajr_sync(xfc);
+ 	return status;
+ }
+ 
+@@ -613,6 +622,7 @@
+ 		xfc->unobscured = (xevent.xvisibility.state == VisibilityUnobscured);
+ 		XSetWMProtocols(xfc->display, xfc->window->handle, &(xfc->WM_DELETE_WINDOW), 1);
+ 		xfc->drawable = xfc->window->handle;
++        xf_ajr_init(xfc);
+ 	}
+ 	else
+ 	{
+@@ -719,29 +729,6 @@
+ 		XFreeModifiermap(xfc->modifierMap);
+ 		xfc->modifierMap = NULL;
+ 	}
+-}
+-
+-void xf_toggle_fullscreen(xfContext* xfc)
+-{
+-	WindowStateChangeEventArgs e;
+-	rdpContext* context = (rdpContext*)xfc;
+-	rdpSettings* settings = context->settings;
+-
+-	/*
+-	  when debugging, ungrab keyboard when toggling fullscreen
+-	  to allow keyboard usage on the debugger
+-	*/
+-	if (xfc->debug)
+-	{
+-		XUngrabKeyboard(xfc->display, CurrentTime);
+-	}
+-
+-	xfc->fullscreen = (xfc->fullscreen) ? FALSE : TRUE;
+-	xfc->decorations = (xfc->fullscreen) ? FALSE : settings->Decorations;
+-	xf_SetWindowFullscreen(xfc, xfc->window, xfc->fullscreen);
+-	EventArgsInit(&e, "xfreerdp");
+-	e.state = xfc->fullscreen ? FREERDP_WINDOW_STATE_FULLSCREEN : 0;
+-	PubSub_OnWindowStateChange(context->pubSub, context, &e);
+ }
+ 
+ BOOL xf_toggle_control(xfContext* xfc)
+@@ -1680,7 +1667,7 @@
+ 		if (xfc->window)
+ 			xf_floatbar_hide_and_show(xfc->window->floatbar);
+ 
+-		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
++		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, xfc->ajr_pending ? 100 : INFINITE);
+ 
+ 		if (waitStatus == WAIT_FAILED)
+ 			break;
+--- a/client/X11/xf_event.c
++++ b/client/X11/xf_event.c
+@@ -38,6 +38,7 @@
+ #include "xf_graphics.h"
+ 
+ #include "xf_event.h"
++#include "ajr.h"
+ #include "xf_input.h"
+ 
+ #define TAG CLIENT_TAG("x11")
+@@ -507,6 +508,17 @@
+ 	char str[256];
+ 	WINPR_UNUSED(app);
+ 	XLookupString((XKeyEvent*)event, str, sizeof(str), &keysym, NULL);
++    /* Event modifiers survive the asynchronous remote focus synchronization. */
++    if (!xfc->remote_app && xfc->fullscreen_toggle && keysym == XK_Return &&
++        (((event->state & ControlMask) && (event->state & Mod1Mask)) || xfc->ajr_return_down))
++    {
++        if (!xfc->ajr_return_down)
++        {
++            xfc->ajr_return_down = TRUE;
++            xf_toggle_fullscreen(xfc);
++        }
++        return TRUE;
++    }
+ 	xf_keyboard_key_press(xfc, event->keycode, keysym);
+ 	return TRUE;
+ }
+@@ -546,18 +558,19 @@
+ 
+ static BOOL xf_event_FocusIn(xfContext* xfc, const XFocusInEvent* event, BOOL app)
+ {
+-	if (event->mode == NotifyGrab)
++	/* XWayland emits both edges when a keyboard grab changes. These are
++     * not application focus changes; reacting would ungrab/regrab forever. */
++	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
+ 		return TRUE;
+ 
+ 	xfc->focused = TRUE;
+ 
+-	if (xfc->mouse_active && !app)
++	if (!app)
+ 	{
+ 		if (!xfc->window)
+ 			return FALSE;
+ 
+-		XGrabKeyboard(xfc->display, xfc->window->handle, TRUE, GrabModeAsync, GrabModeAsync,
+-		              CurrentTime);
++		xf_ajr_update_keyboard(xfc);
+ 	}
+ 
+ 	/* Release all keys, should already be done at FocusOut but might be missed
+@@ -585,13 +598,14 @@
+ 
+ static BOOL xf_event_FocusOut(xfContext* xfc, const XFocusOutEvent* event, BOOL app)
+ {
+-	if (event->mode == NotifyUngrab)
++	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
+ 		return TRUE;
+ 
+ 	xfc->focused = FALSE;
++    xf_ajr_release_keyboard(xfc);
+ 
+ 	if (event->mode == NotifyWhileGrabbed)
+-		XUngrabKeyboard(xfc->display, CurrentTime);
++		xf_ajr_release_keyboard(xfc);
+ 
+ 	xf_keyboard_release_all_keypress(xfc);
+ 
+@@ -618,6 +632,10 @@
+ 
+ static BOOL xf_event_ClientMessage(xfContext* xfc, const XClientMessageEvent* event, BOOL app)
+ {
++    if (!app && event->message_type == XInternAtom(xfc->display, "_AJR_CONTROL_V1", False))
++    {
++        return xf_ajr_control(xfc, event);
++    }
+ 	if ((event->message_type == xfc->WM_PROTOCOLS) &&
+ 	    ((Atom)event->data.l[0] == xfc->WM_DELETE_WINDOW))
+ 	{
+@@ -656,8 +674,7 @@
+ 			XSetInputFocus(xfc->display, xfc->window->handle, RevertToPointerRoot, CurrentTime);
+ 
+ 		if (xfc->focused)
+-			XGrabKeyboard(xfc->display, xfc->window->handle, TRUE, GrabModeAsync, GrabModeAsync,
+-			              CurrentTime);
++			xf_ajr_update_keyboard(xfc);
+ 	}
+ 	else
+ 	{
+@@ -675,7 +692,9 @@
+ 	if (!app)
+ 	{
+ 		xfc->mouse_active = FALSE;
+-		XUngrabKeyboard(xfc->display, CurrentTime);
++        /* Fullscreen owns the keyboard even when the pointer reaches the bar
++         * or another monitor. Only a state/focus change releases the grab. */
++        xf_ajr_update_keyboard(xfc);
+ 	}
+ 	else
+ 	{
+@@ -703,6 +722,7 @@
+ 		if (!xfc->window)
+ 			return FALSE;
+ 
++        if (event->width <= 0 || event->height <= 0) return TRUE;
+ 		if (xfc->window->left != event->x)
+ 			xfc->window->left = event->x;
+ 
+@@ -732,6 +752,13 @@
+ #endif
+ 		}
+ 
++        if (!xfc->fullscreen && !xfc->ajr_pending) {
++            Window child; int x, y;
++            XTranslateCoordinates(xfc->display, xfc->window->handle,
++                DefaultRootWindow(xfc->display), 0, 0, &x, &y, &child);
++            xfc->savedPosX = x; xfc->savedPosY = y;
++            xfc->savedWidth = event->width; xfc->savedHeight = event->height;
++        }
+ 		if (settings->DynamicResolutionUpdate)
+ 		{
+ 			int alignedWidth, alignedHeight;
+@@ -782,8 +809,10 @@
+ {
+ 	xfAppWindow* appWindow;
+ 
+-	if (!app)
++	if (!app) {
++        xfc->ajr_grabbed = FALSE;
+ 		gdi_send_suppress_output(xfc->context.gdi, FALSE);
++    }
+ 	else
+ 	{
+ 		appWindow = xf_AppWindowFromX11Window(xfc, event->window);
+@@ -811,6 +840,7 @@
+ 	WINPR_ASSERT(event);
+ 
+ 	xf_keyboard_release_all_keypress(xfc);
++    xf_ajr_release_keyboard(xfc);
+ 
+ 	if (!app)
+ 		gdi_send_suppress_output(xfc->context.gdi, TRUE);
+@@ -831,6 +861,7 @@
+ {
+ 	WINPR_ASSERT(xfc);
+ 	WINPR_ASSERT(event);
++    if (!app && event->atom == xfc->_NET_WM_STATE) xf_ajr_sync(xfc);
+ 
+ 	/*
+ 	 * This section handles sending the appropriate commands to the rail server
+@@ -1050,6 +1081,12 @@
+ 	xfAppWindow* appWindow;
+ 	xfContext* xfc = (xfContext*)instance->context;
+ 	rdpSettings* settings = xfc->context.settings;
++    if (getenv("AJR_DIAGNOSTIC") && (event->type == FocusIn || event->type == FocusOut ||
++        event->type == MapNotify || event->type == UnmapNotify || event->type == KeyPress || event->type == KeyRelease))
++        fprintf(stderr, "AJR_DIAG event=%d focusMode=%d focusDetail=%d focused=%d grabbed=%d fullscreen=%d\n",
++                event->type, (event->type == FocusIn || event->type == FocusOut) ? event->xfocus.mode : -1,
++                (event->type == FocusIn || event->type == FocusOut) ? event->xfocus.detail : -1,
++                xfc->focused, xfc->ajr_grabbed, xfc->fullscreen);
+ 
+ 	if (xfc->remote_app)
+ 	{
+--- a/client/X11/xf_keyboard.c
++++ b/client/X11/xf_keyboard.c
+@@ -39,6 +39,7 @@
+ #include "xf_event.h"
+ 
+ #include "xf_keyboard.h"
++#include "ajr.h"
+ 
+ #include <freerdp/log.h>
+ #define TAG CLIENT_TAG("x11")
+@@ -158,6 +159,11 @@
+ 	if (keycode < 8)
+ 		return;
+ 
++    if (keysym == XK_Return && xfc->ajr_return_down) {
++        xfc->ajr_return_down = FALSE;
++        xfc->KeyboardState[keycode] = FALSE;
++        return;
++    }
+ 	xfc->KeyboardState[keycode] = FALSE;
+ 	xf_keyboard_handle_special_keys_release(xfc, keysym);
+ 	xf_keyboard_send_key(xfc, FALSE, keycode);
+@@ -471,42 +477,12 @@
+ BOOL xf_keyboard_handle_special_keys(xfContext* xfc, KeySym keysym)
+ {
+ 	XF_MODIFIER_KEYS mod = { 0 };
++    if (keysym == XK_Return && xfc->ajr_return_down) return TRUE;
+ 	xk_keyboard_get_modifier_keys(xfc, &mod);
+ 
+-	// remember state of RightCtrl to ungrab keyboard if next action is release of RightCtrl
+-	// do not return anything such that the key could be used by client if ungrab is not the goal
+-	if (keysym == XK_Control_R)
+-	{
+-		if (mod.RightCtrl && xfc->firstPressRightCtrl)
+-		{
+-			// Right Ctrl is pressed, getting ready to ungrab
+-			xfc->ungrabKeyboardWithRightCtrl = TRUE;
+-			xfc->firstPressRightCtrl = FALSE;
+-		}
+-	}
+-	else
+-	{
+-		// some other key has been pressed, abort ungrabbing
+-		if (xfc->ungrabKeyboardWithRightCtrl)
+-			xfc->ungrabKeyboardWithRightCtrl = FALSE;
+-	}
+-
+ 	if (!xf_keyboard_execute_action_script(xfc, &mod, keysym))
+ 	{
+ 		return TRUE;
+-	}
+-
+-	if (!xfc->remote_app && xfc->fullscreen_toggle)
+-	{
+-		if (keysym == XK_Return)
+-		{
+-			if (mod.Ctrl && mod.Alt)
+-			{
+-				/* Ctrl-Alt-Enter: toggle full screen */
+-				xf_toggle_fullscreen(xfc);
+-				return TRUE;
+-			}
+-		}
+ 	}
+ 
+ 	if ((keysym == XK_c) || (keysym == XK_C))
+@@ -604,31 +580,9 @@
+ 
+ void xf_keyboard_handle_special_keys_release(xfContext* xfc, KeySym keysym)
+ {
+-	if (keysym != XK_Control_R)
+-		return;
+-
+-	xfc->firstPressRightCtrl = TRUE;
+-
+-	if (!xfc->ungrabKeyboardWithRightCtrl)
+-		return;
+-
+-	// all requirements for ungrab are fulfilled, ungrabbing now
+-	XF_MODIFIER_KEYS mod = { 0 };
+-	xk_keyboard_get_modifier_keys(xfc, &mod);
+-
+-	if (!mod.RightCtrl)
+-	{
+-		if (!xfc->fullscreen)
+-		{
+-			xf_toggle_control(xfc);
+-		}
+-
+-		xfc->mouse_active = FALSE;
+-		XUngrabKeyboard(xfc->display, CurrentTime);
+-	}
+-
+-	// ungrabbed
+-	xfc->ungrabKeyboardWithRightCtrl = FALSE;
++    /* No Right-Ctrl escape: Ctrl+Alt+Enter and the AJR Bar own local control. */
++    WINPR_UNUSED(xfc);
++    WINPR_UNUSED(keysym);
+ }
+ 
+ BOOL xf_keyboard_set_indicators(rdpContext* context, UINT16 led_flags)

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=AJR Connect
+Comment=Conectar ao Windows por RDP
+Exec=@AJR_LAUNCHER@
+Icon=network-server
+Terminal=false
+Categories=Network;RemoteAccess;
+StartupNotify=true
+StartupWMClass=com.ajure.AJRConnect

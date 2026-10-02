@@ -1,0 +1,17 @@
+.ajr-hot-zone { background-color: rgba(0, 0, 0, 0.001); }
+.ajr-bar {
+    background-color: #202631;
+    color: #f6f8fc;
+    border: 1px solid #526075;
+    border-radius: 12px;
+    padding: 6px 8px;
+    spacing: 6px;
+    box-shadow: 0 4px 16px 2px rgba(0, 0, 0, 0.25);
+}
+.ajr-brand { font-weight: bold; font-size: 13px; padding: 0 10px 0 6px; }
+.ajr-button { border-radius: 7px; padding: 10px; color: #f6f8fc; }
+.ajr-button-content { spacing: 6px; font-size: 12px; }
+.ajr-button:hover { background-color: #3a4659; }
+.ajr-button:focus { background-color: #3a4659; box-shadow: inset 0 0 0 2px #a1c4ff; }
+.ajr-button:active { background-color: #526075; }
+.ajr-danger:hover, .ajr-danger:focus { background-color: #a62638; }

@@ -1,0 +1,17 @@
+AJR Connect 6
+
+Inclui um frontend X11 derivado do FreeRDP 2.11.5, licenciado sob Apache 2.0.
+O texto da licença encontra-se em licenses/Apache-2.0.txt.
+Os avisos de autoria originais são preservados nos fontes correspondentes.
+Fonte original: https://github.com/FreeRDP/FreeRDP/tree/2.11.5
+
+Os arquivos client/X11/xfreerdp.h, xf_client.c, xf_event.c e xf_keyboard.c
+foram modificados para a integração AJR: controle de fullscreen, geometria,
+captura do teclado e tratamento de eventos de foco. O arquivo native/ajr.c
+declara SPDX-License-Identifier: Apache-2.0. O patch correspondente e os
+fontes modificados acompanham o pacote de fontes.
+
+FreeRDP/WinPR, GTK, libadwaita, GNOME e bibliotecas X11 são dependências do
+sistema, distribuídas separadamente pelos respectivos fornecedores.
+O código próprio AJR deste pacote é disponibilizado sob Apache 2.0,
+por decisão do titular. Leia licenses/AJR.txt e licenses/Apache-2.0.txt.

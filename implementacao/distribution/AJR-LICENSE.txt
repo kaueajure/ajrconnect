@@ -1,0 +1,11 @@
+O código próprio do AJR Connect neste pacote é disponibilizado sob a
+licença Apache, versão 2.0. O texto integral está em Apache-2.0.txt.
+
+Você pode usar esses arquivos em conformidade com essa licença.
+https://www.apache.org/licenses/LICENSE-2.0
+
+Salvo quando exigido pela legislação aplicável ou acordado por escrito,
+o software é distribuído SEM GARANTIAS OU CONDIÇÕES DE QUALQUER TIPO.
+Consulte o texto integral para as permissões e limitações aplicáveis.
+
+Os componentes de terceiros mantêm suas licenças e avisos originais.
