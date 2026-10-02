@@ -3,14 +3,24 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.2**. A instalação em um Zorin recém-instalado
+Versão de teste: **6.0.0-beta.3**. A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
-## Ambiente suportado
+## Instalação em outras distribuições
 
-Zorin OS 18.1, Linux x86_64, GNOME 46, Wayland/XWayland e bibliotecas
-FreeRDP/WinPR 2.11.5. O instalador verifica esses requisitos antes de alterar
-arquivos e configurações. Outros ambientes ainda não foram validados.
+O download e a instalação não bloqueiam por nome ou versão da distribuição,
+versão do GNOME, X11, Wayland ou ausência de uma sessão gráfica ativa.
+O pacote compilado é Linux x86_64 e precisa de GTK4/libadwaita, PyGObject,
+bibliotecas X11 e FreeRDP/WinPR 2.11.5 para executar.
+
+Dependências ausentes são instaladas automaticamente em sistemas com APT,
+aceitando os nomes de pacotes com ou sem `t64`. Em outros gerenciadores,
+a instalação segue se as dependências já estão disponíveis; se faltarem,
+o instalador informa o que instalar.
+
+A AJR Bar é uma integração opcional para GNOME 46. Em outros desktops ou
+versões do GNOME, o cliente é instalado com os controles na janela do
+aplicativo e Ctrl+Alt+Enter para alternar fullscreen.
 
 O AJR Connect conecta a servidores Windows por RDP, incluindo VMs hospedadas
 em Docker. Docker não é necessário no computador que executa o cliente.
@@ -31,7 +41,7 @@ instalá-las pelo APT. Apenas pacotes ausentes são solicitados; as bibliotecas
 FreeRDP/WinPR devem manter a versão 2.11.5. O instalador simula a transação
 antes de executá-la, não permite remoções e não faz downgrade automático.
 Se todas as dependências já estiverem instaladas, não usa sudo.
-Após instalar, saia da sessão GNOME e entre novamente para carregar a AJR Bar.
+Se a AJR Bar for instalada, saia da sessão e entre novamente para carregá-la.
 
 Para apenas verificar o ambiente:
 
@@ -48,7 +58,8 @@ campos vazios; configurações existentes são preservadas.
 - Ctrl+Alt+Enter alterna entre janela e fullscreen no monitor selecionado.
 - Em fullscreen ativo, o teclado é capturado para encaminhar atalhos ao Windows.
 - Em janela, os atalhos globais ficam com o Linux.
-- No topo central da tela, a AJR Bar permite minimizar, sair de fullscreen e desconectar.
+- No GNOME 46, a AJR Bar no topo central permite minimizar, sair de fullscreen e desconectar.
+- Os mesmos controles estão disponíveis na janela do aplicativo.
 
 O cliente preserva o compartilhamento de pastas e usa renderização por software,
 sem ativar `/gfx`, `/gdi:hw` ou a floatbar visual nativa do FreeRDP.
@@ -78,12 +89,11 @@ configurações GNOME em memória. Os pacotes extraídos passaram na verificaç�
 de compatibilidade e o cliente foi recompilado a partir dos fontes distribuídos.
 O cliente também foi testado com uma VM real em dois monitores.
 
-O comando único possui quatro verificações adicionais: ajuda, sessão gráfica,
-execução sem sudo e bloqueio de download com integridade incorreta.
-Há oito testes adicionais do planejamento de dependências, incluindo versões
-incompatíveis, falhas do APT e bloqueio da instalação do aplicativo após falha.
+Os testes também cobrem instalação sem sessão gráfica, esquemas GNOME ausentes,
+preservação de extensões existentes, nomes de pacotes sem `t64`, dependências
+pré-instaladas sem APT e bloqueio de arquivos com integridade incorreta.
 
-Essas verificações ainda não substituem um teste em uma instalação limpa do Zorin.
+As validações em uma instalação limpa e em outros desktops reais ainda estão pendentes.
 Relate problemas em [Issues](https://github.com/kaueajure/ajrconnect/issues),
 informando sistema, versões, monitor e passos para reproduzir.
 Não inclua senhas ou dados pessoais de registros e capturas.

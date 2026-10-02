@@ -9,6 +9,7 @@ import subprocess
 import argparse
 import sys
 import tempfile
+import re
 from check_compatibility import check_compatibility
 from dependencies import ensure_dependencies
 
@@ -47,6 +48,28 @@ def desktop_exec(*arguments):
     return ' '.join(result)
 
 
+def lookup_settings(Gio, schema):
+    source = Gio.SettingsSchemaSource.get_default()
+    if source is None or source.lookup(schema, True) is None:
+        return None
+    return Gio.Settings.new(schema)
+
+
+def extension_supported():
+    if not shutil.which('gnome-shell') or not shutil.which('gnome-extensions'):
+        return False
+    try:
+        result = subprocess.run(['gnome-shell', '--version'], capture_output=True,
+                                text=True, timeout=5)
+        if result.returncode or not isinstance(result.stdout, str):
+            return False
+        match = re.search(r'GNOME Shell (\d+)', result.stdout)
+        metadata = json.loads((BASE / 'extensao/metadata.json').read_text())
+        return bool(match and match.group(1) in metadata.get('shell-version', []))
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        return False
+
+
 def install_files():
     from gi.repository import Gio
     BACKUP.mkdir(parents=True, mode=0o700)
@@ -57,13 +80,18 @@ def install_files():
         shutil.copytree(EXT, BACKUP / 'extension')
     if APP.exists():
         shutil.copytree(APP, BACKUP / 'app')
-    wm = Gio.Settings.new('org.gnome.desktop.wm.keybindings')
-    shell = Gio.Settings.new('org.gnome.shell')
-    state = {'toggle-fullscreen': wm.get_strv('toggle-fullscreen'),
-             'enabled-extensions': shell.get_strv('enabled-extensions'),
-             'disabled-extensions': shell.get_strv('disabled-extensions')}
+    wm = lookup_settings(Gio, 'org.gnome.desktop.wm.keybindings')
+    shell = lookup_settings(Gio, 'org.gnome.shell')
+    extension_managed = shell is not None and extension_supported()
+    state = {}
+    if wm is not None:
+        state['toggle-fullscreen'] = wm.get_strv('toggle-fullscreen')
+    if extension_managed:
+        state['enabled-extensions'] = shell.get_strv('enabled-extensions')
+        state['disabled-extensions'] = shell.get_strv('disabled-extensions')
     (BACKUP / 'settings.json').write_text(json.dumps(state, indent=2))
-    subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
+    if extension_managed:
+        subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
     APP.mkdir(parents=True, exist_ok=True)
     for name in ('ajr_app.py', 'core.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
         shutil.copy2(BASE / name, APP / name)
@@ -91,33 +119,40 @@ def install_files():
     DESKTOP.write_text((BASE / 'ajr-connect.desktop.in').read_text().replace(
         '@AJR_LAUNCHER@', desktop_exec(sys.executable, BIN)))
     DESKTOP.chmod(0o644)
-    EXT.mkdir(parents=True, exist_ok=True)
-    for name in ('extension.js', 'stylesheet.css', 'metadata.json'):
-        shutil.copy2(BASE / 'extensao' / name, EXT / name)
+    if extension_managed:
+        EXT.mkdir(parents=True, exist_ok=True)
+        for name in ('extension.js', 'stylesheet.css', 'metadata.json'):
+            shutil.copy2(BASE / 'extensao' / name, EXT / name)
     # Remove only the conflicting shortcut, leaving other user bindings intact.
-    wm.set_strv('toggle-fullscreen', [key for key in state['toggle-fullscreen']
-                                    if key.lower() not in ('<ctrl><alt>return', '<control><alt>return')])
+    if wm is not None:
+        wm.set_strv('toggle-fullscreen', [key for key in state['toggle-fullscreen']
+                                        if key.lower() not in ('<ctrl><alt>return', '<control><alt>return')])
     # A loaded ES module cannot be replaced in this Wayland session.
     # Keep v5 disabled; the autostart enables only metadata version >= 6.
-    subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
-    autostart = HOME / '.config/autostart/ajr-connect-integration.desktop'
-    autostart.parent.mkdir(parents=True, exist_ok=True)
-    if autostart.exists():
-        shutil.copy2(autostart, BACKUP / 'autostart.desktop')
-    autostart.write_text('[Desktop Entry]\nType=Application\nName=AJR Connect Integration\n'
-        'Exec=' + desktop_exec(sys.executable, APP / 'enable-extension.py') + '\n'
-        'X-GNOME-Autostart-enabled=true\nNoDisplay=true\n')
+    if extension_managed:
+        subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
+        autostart = HOME / '.config/autostart/ajr-connect-integration.desktop'
+        autostart.parent.mkdir(parents=True, exist_ok=True)
+        if autostart.exists():
+            shutil.copy2(autostart, BACKUP / 'autostart.desktop')
+        autostart.write_text('[Desktop Entry]\nType=Application\nName=AJR Connect Integration\n'
+            'Exec=' + desktop_exec(sys.executable, APP / 'enable-extension.py') + '\n'
+            'OnlyShowIn=GNOME;\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n')
     Gio.Settings.sync()
     (DATA / 'last-install.json').write_text(json.dumps({'version': 6, 'backup': str(BACKUP),
-        'needs_shell_restart': True, 'desktop_managed': True,
-        'launcher_managed': True}, indent=2))
+        'needs_shell_restart': extension_managed, 'desktop_managed': True,
+        'launcher_managed': True, 'extension_managed': extension_managed,
+        'autostart_managed': extension_managed}, indent=2))
     print('Instalado em:', APP)
     print('Backup:', BACKUP)
-    print('O GNOME 46 mantém o módulo antigo em cache. Saia da sessão e entre novamente para carregar a AJR Bar v6.')
+    if extension_managed:
+        print('Saia da sessão e entre novamente para carregar a AJR Bar.')
+    else:
+        print('AJR Bar indisponível neste desktop. Use os controles do aplicativo e Ctrl+Alt+Enter.')
     return 0
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Instalador por usuário do AJR Connect')
-    parser.add_argument('--check', action='store_true', help='Apenas verificar compatibilidade, sem instalar')
+    parser.add_argument('--check', action='store_true', help='Apenas verificar dependências, sem instalar')
     args = parser.parse_args()
     raise SystemExit((0 if check_compatibility(BASE) else 1) if args.check else install())

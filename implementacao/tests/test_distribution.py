@@ -15,7 +15,7 @@ import install
 
 SANDBOX = '''
 from pathlib import Path
-import os, runpy, sys
+import os, runpy, sys, json, subprocess
 from unittest.mock import patch
 sys.path.insert(0, sys.argv[1])
 import install
@@ -29,14 +29,28 @@ old_desktop = b'[Desktop Entry]\\nType=Application\\nName=Previous AJR\\nExec=/b
 if sys.argv[2] == 'existing':
     desktop.parent.mkdir(parents=True)
     desktop.write_bytes(old_desktop)
-with patch('subprocess.run'):
+if sys.argv[2] == 'non-gnome':
+    install.EXT.mkdir(parents=True)
+    (install.EXT / 'sentinel').write_text('existing extension')
+    autostart = home / '.config/autostart/ajr-connect-integration.desktop'
+    autostart.parent.mkdir(parents=True)
+    autostart.write_text('existing autostart')
+    install.lookup_settings = lambda Gio, schema: None
+with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GNOME Shell 46.0', '')):
     assert install.install_files() == 0
     assert cfg.read_bytes() == original
     assert (home / '.local/bin/ajr-connect').is_file()
     assert '@AJR_LAUNCHER@' not in desktop.read_text()
     assert install.desktop_exec(home / '.local/bin/ajr-connect') in desktop.read_text()
-    assert install.desktop_exec(sys.executable, install.APP / 'enable-extension.py') in (
-        home / '.config/autostart/ajr-connect-integration.desktop').read_text()
+    metadata = json.loads((install.DATA / 'last-install.json').read_text())
+    if metadata['extension_managed']:
+        assert install.desktop_exec(sys.executable, install.APP / 'enable-extension.py') in (
+            home / '.config/autostart/ajr-connect-integration.desktop').read_text()
+    if sys.argv[2] == 'non-gnome':
+        assert not metadata['extension_managed']
+        assert not metadata['autostart_managed']
+        assert (install.EXT / 'sentinel').read_text() == 'existing extension'
+        assert autostart.read_text() == 'existing autostart'
     from gi.repository import Gio
     assert Gio.DesktopAppInfo.new_from_filename(str(desktop)) is not None
     if (Path(sys.argv[1]) / 'licenses').is_dir():
@@ -44,6 +58,9 @@ with patch('subprocess.run'):
     runpy.run_path(str(Path(sys.argv[1]) / 'rollback.py'))
 assert cfg.read_bytes() == original
 assert not (home / '.local/bin/ajr-connect').exists()
+if sys.argv[2] == 'non-gnome':
+    assert (install.EXT / 'sentinel').read_text() == 'existing extension'
+    assert autostart.read_text() == 'existing autostart'
 if sys.argv[2] == 'existing':
     assert desktop.read_bytes() == old_desktop
 else:
@@ -74,7 +91,7 @@ class DistributionTests(unittest.TestCase):
             install.desktop_exec('/example/invalid\npath')
 
     def test_installer_and_rollback_without_real_settings(self):
-        for state in ('fresh', 'existing'):
+        for state in ('fresh', 'existing', 'non-gnome'):
             with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory) / 'Pessoa AJR $ % " \\'
                 home.mkdir()

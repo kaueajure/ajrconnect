@@ -2,35 +2,38 @@
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
-## Ambiente suportado
+## Requisitos de execução
 
-Zorin OS 18.1, Linux x86_64, GNOME 46, sessão Wayland com XWayland e
-bibliotecas FreeRDP/WinPR 2.11.5. Outros ambientes ainda não foram validados.
+O instalador não bloqueia por distribuição, versão do GNOME, X11 ou Wayland.
+O binário fornecido é Linux x86_64 e requer GTK4/libadwaita, PyGObject,
+bibliotecas X11 e FreeRDP/WinPR 2.11.5. A AJR Bar é opcional e compatível
+com GNOME 46; em outros desktops, use os controles da janela do aplicativo.
 O aplicativo conecta a servidores Windows com RDP disponível, incluindo VMs
 hospedadas em Docker; Docker não é necessário no computador do cliente.
 
 ## Instalação
 
 Extraia o pacote, entre no diretório `ajr-connect` e execute no terminal da
-sessão gráfica, sem sudo:
+seu usuário, sem sudo:
 
 ```sh
 python3 install.py --check
 python3 install.py
 ```
 
-A verificação lista os requisitos ausentes e bloqueia a instalação se o
-ambiente não corresponde ao alvo. No modo de instalação, as dependências
+A verificação lista somente os componentes e dependências necessários para executar o cliente. No modo de instalação, as dependências
 ausentes são instaladas pelos repositórios do sistema. A senha de administrador
 pode ser solicitada apenas nessa etapa. O aplicativo é instalado por usuário.
 O modo `--check` apenas verifica e não instala pacotes.
 São necessários Python 3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1,
-gnome-shell, xwayland, x11-xserver-utils, libsecret-tools,
-libfreerdp2-2t64, libfreerdp-client2-2t64 e libwinpr2-2t64.
+x11-xserver-utils, libsecret-tools,
+libfreerdp2-2t64, libfreerdp-client2-2t64 e libwinpr2-2t64
+(ou os nomes equivalentes sem `t64`). Em distribuições sem APT, as
+dependências devem ser instaladas pelo gerenciador do sistema.
 As três bibliotecas RDP devem estar na versão 2.11.5; o cliente também
 depende das bibliotecas X11 e demais bibliotecas resolvidas pelo sistema.
 
-Saia da sessão GNOME e entre novamente para carregar a extensão AJR Bar.
+Se a AJR Bar for instalada, saia da sessão e entre novamente para carregá-la.
 Abra AJR Connect pelo menu de aplicativos. Informe servidor, usuário, senha,
 monitor e, se desejar, pastas compartilhadas. As novas instalações começam
 sem servidor, usuário ou pastas configurados.

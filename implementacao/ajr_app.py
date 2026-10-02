@@ -139,7 +139,7 @@ class MainWindow(Adw.ApplicationWindow):
                            if result.get('version', 0) < 6 else
                            'A AJR Bar está desativada. Ative AJR Connect no aplicativo Extensões.')
             except GLib.Error:
-                ready, message = False, 'Não foi possível verificar a AJR Bar no GNOME.'
+                ready, message = False, 'AJR Bar indisponível nesta sessão. Use os controles do aplicativo ou Ctrl+Alt+Enter.'
             def done():
                 self.integration_banner.set_title(message)
                 self.integration_banner.set_revealed(not ready)

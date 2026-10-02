@@ -16,11 +16,10 @@ class BootstrapTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('--check', result.stdout)
 
-    def test_no_graphical_session_stops_before_download(self):
-        result = subprocess.run(['bash', str(SCRIPT), '--check'], capture_output=True, text=True,
-                                env=dict(os.environ, XDG_SESSION_TYPE='x11'), timeout=5)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn('GNOME Wayland', result.stderr)
+    def test_download_has_no_session_architecture_or_distribution_gate(self):
+        text = SCRIPT.read_text()
+        for forbidden in ('/etc/os-release', 'uname -', 'gnome-shell --version', 'XDG_SESSION_TYPE'):
+            self.assertNotIn(forbidden, text)
 
     def test_root_stops_before_download(self):
         with tempfile.TemporaryDirectory() as directory:

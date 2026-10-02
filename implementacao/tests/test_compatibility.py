@@ -14,15 +14,13 @@ import install
 
 
 class CompatibilityTests(unittest.TestCase):
-    def test_zorin_minor_version(self):
-        with tempfile.TemporaryDirectory() as directory:
-            release = Path(directory) / 'os-release'
-            release.write_text('ID=zorin\nVERSION_ID="18"\nVERSION="18.1"\n')
-            self.assertTrue(compatibility.supported_os(compatibility.read_os_release(release)))
-        for values in ({'ID': 'zorin', 'VERSION': '18'},
-                       {'ID': 'zorin', 'VERSION': '18.2'},
-                       {'ID': 'ubuntu', 'VERSION': '18.1'}):
-            self.assertFalse(compatibility.supported_os(values))
+    def test_session_and_distribution_are_not_checked(self):
+        with patch.dict(os.environ, {'XDG_SESSION_TYPE': 'x11', 'XDG_CURRENT_DESKTOP': 'KDE',
+                                    'DISPLAY': '', 'WAYLAND_DISPLAY': ''}):
+            checks = compatibility.collect_checks()
+        self.assertTrue(all(item.ok for item in checks))
+        self.assertTrue(all(item.name not in ('Sistema', 'Arquitetura', 'Sessão gráfica', 'GNOME ativo')
+                            for item in checks))
 
     def test_install_blocked_before_mutation(self):
         with patch.object(install, 'check_compatibility', return_value=False), \
@@ -65,13 +63,13 @@ ctypes.CDLL = FakeLibrary
         self.assertFalse(ok)
         self.assertIn('libwinpr2.so.2: 2.12.0', detail)
 
-    def test_check_mode_fails_without_touching_home(self):
+    def test_check_mode_allows_no_session_without_touching_home(self):
         with tempfile.TemporaryDirectory() as directory:
-            env = dict(os.environ, HOME=directory, XDG_SESSION_TYPE='x11')
+            env = dict(os.environ, HOME=directory, XDG_SESSION_TYPE='', DISPLAY='', WAYLAND_DISPLAY='')
             result = subprocess.run([sys.executable, str(BASE / 'install.py'), '--check'],
                                     env=env, capture_output=True, text=True, timeout=30)
-            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
-            self.assertIn('Instalação bloqueada', result.stdout)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn('Dependências disponíveis', result.stdout)
             self.assertEqual(list(Path(directory).iterdir()), [])
 
 

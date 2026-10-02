@@ -14,20 +14,23 @@ class DependencyTests(unittest.TestCase):
         calls = []
         completed = [False]
         def version(package):
-            if package in missing and not completed[0]:
+            logical = next((key for key, choices in deps.RDP_CHOICES.items() if package in choices), package)
+            if logical in missing and not completed[0]:
                 return None
-            return '2.11.5+dfsg1-1build2' if package in deps.RDP_PACKAGES else '1.0'
+            return '2.11.5+dfsg1-1build2' if logical in deps.RDP_PACKAGES else '1.0'
         def run(command, capture=True):
             calls.append(command)
             if failure and failure(command):
                 raise deps.DependencyError('Simulated package manager failure')
             if command[:2] == ['apt-cache', 'policy']:
-                return '  Candidate: ' + candidate + '\n'
+                value = candidate.get(command[-1], '(none)') if isinstance(candidate, dict) else candidate
+                return '  Candidate: ' + value + '\n'
             if command[:2] == ['sudo', 'apt-get'] and 'install' in command:
                 completed[0] = True
             return ''
         with patch.object(deps, 'validate_target'), \
                 patch.object(deps, 'validate_existing_rdp'), \
+                patch.object(deps, 'runtime_available', return_value=not missing), \
                 patch.object(deps, 'installed_version', side_effect=version), \
                 patch.object(deps, 'run', side_effect=run), \
                 patch.object(deps.shutil, 'which', return_value='/usr/bin/sudo'):
@@ -83,12 +86,29 @@ class DependencyTests(unittest.TestCase):
                     self.assertFalse(any(command[:2] == ['sudo', 'apt-get'] and 'install' in command
                                          for command in calls))
 
-    def test_unsupported_os_never_queries_or_installs_packages(self):
-        with patch.object(deps, 'read_os_release', return_value={'ID': 'ubuntu', 'VERSION': '24.04'}), \
+    def test_install_scope_has_no_desktop_or_distribution_gate(self):
+        with patch.dict(deps.os.environ, {'XDG_CURRENT_DESKTOP': 'KDE', 'XDG_SESSION_TYPE': 'x11'}), \
                 patch.object(deps.os, 'geteuid', return_value=1000), \
                 patch.object(deps, 'run') as command:
-            with self.assertRaises(deps.DependencyError):
-                deps.validate_target()
+            deps.validate_target()
+            command.assert_not_called()
+
+    def test_legacy_package_names_supported(self):
+        result, calls = self.plan(missing=('libfreerdp2-2t64',),
+                                  candidate={'libfreerdp2-2': '2.11.5+dfsg1-1'})
+        self.assertTrue(result)
+        transaction = next(command for command in calls if command[:2] == ['sudo', 'apt-get']
+                           and 'install' in command)
+        self.assertIn('libfreerdp2-2=2.11.5+dfsg1-1', transaction)
+
+    def test_available_runtime_does_not_require_apt(self):
+        with patch.object(deps, 'validate_target'), \
+                patch.object(deps, 'installed_version', return_value=None), \
+                patch.object(deps, 'validate_existing_rdp'), \
+                patch.object(deps, 'runtime_available', return_value=True), \
+                patch.object(deps.shutil, 'which', return_value=None), \
+                patch.object(deps, 'run') as command:
+            self.assertTrue(deps.ensure_dependencies())
             command.assert_not_called()
 
     def test_dependency_failure_blocks_application_installation(self):

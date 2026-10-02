@@ -7,7 +7,7 @@ import re
 import tarfile
 
 BASE = Path(__file__).resolve().parent
-TAG = 'v6.0.0-beta.2'
+TAG = 'v6.0.0-beta.3'
 ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
@@ -19,22 +19,31 @@ curl -fsSL {url} | bash
 ```
 
 O comando baixa o pacote, confere a integridade e executa o instalador.
-Execute sem sudo, dentro da sessão gráfica GNOME. Depois da instalação,
-saia da sessão e entre novamente.
+Execute com seu usuário, sem sudo. Se a AJR Bar for instalada no GNOME 46,
+saia da sessão e entre novamente para ativá-la.
 '''
 
 
 def release_notes(repository):
-    return f'''# AJR Connect 6.0.0-beta.2 — versão de teste
+    return f'''# AJR Connect 6.0.0-beta.3 — versão de teste
 
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado
 e AJR Bar para controlar sessões Windows no GNOME 46.
 
-## Alvo desta versão
+## Instalação sem bloqueio de ambiente
 
-Zorin OS 18.1, Linux x86_64, GNOME 46, Wayland/XWayland e bibliotecas
-FreeRDP/WinPR 2.11.5. O instalador verifica esses requisitos antes de modificar
-arquivos e configurações. Outros ambientes ainda não foram validados.
+O instalador não exige uma distribuição, versão do GNOME, X11, Wayland
+ou sessão gráfica ativa específicos. Verifica somente as dependências
+necessárias para executar o cliente. O pacote compilado é Linux x86_64,
+com GTK4/libadwaita, PyGObject, X11 e FreeRDP/WinPR 2.11.5.
+
+A instalação automática usa APT e aceita pacotes RDP com ou sem `t64`.
+Sem APT, a instalação segue quando as dependências estão disponíveis;
+se faltarem, orienta a instalá-las com o gerenciador da distribuição.
+
+A AJR Bar é opcional para GNOME 46. Em outros desktops, use os controles
+na janela do aplicativo e Ctrl+Alt+Enter. A instalação e a restauração
+preservam extensões e autostart existentes quando essa integração não é aplicada.
 
 ## Recursos
 
@@ -53,7 +62,7 @@ ou a floatbar visual nativa do FreeRDP.
 ## Estado da validação
 
 Esta é uma versão de teste. A instalação em um Zorin recém-instalado ainda
-não foi validada. Na máquina de desenvolvimento, foram aprovados dez testes
+não foi validada. Na máquina de desenvolvimento, foram aprovados testes
 do instalador, incluindo preservação de configurações e restauração em
 diretórios de usuário temporários, com configurações GNOME em memória.
 Os pacotes extraídos passaram na verificação de compatibilidade e o frontend
@@ -64,7 +73,7 @@ atualização da imagem durante fullscreen. A verificação do instalador não
 substitui um teste completo em outra instalação do sistema.
 
 Reconecte ao mudar resolução ou escala dos monitores. A AJR Bar é destinada
-ao GNOME 46 e requer um novo login após a instalação.
+ao GNOME 46 e requer um novo login quando essa integração é instalada.
 
 ## Baixar e instalar pelo terminal
 
@@ -108,7 +117,7 @@ def prepare(repository, output):
     original = (repository_dir / 'README.md').read_text()
     original = original.replace('# AJR Connect 6\n',
         '# AJR Connect 6 — versão de teste\n\n'
-        'Versão atual: **6.0.0-beta.2**. A instalação em um Zorin recém-instalado\n'
+        'Versão atual: **6.0.0-beta.3**. A instalação em um Zorin recém-instalado\n'
         'ainda precisa ser validada.\n\n'
         '## Download da versão de teste\n\n' + download_commands(repository) + '\n', 1)
     (repository_dir / 'README.md').write_text(original)
