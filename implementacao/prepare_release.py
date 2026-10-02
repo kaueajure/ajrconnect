@@ -12,26 +12,15 @@ ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
 def download_commands(repository):
-    base_url = 'https://github.com/' + repository + '/releases/download/' + TAG
+    account, name = repository.split('/', 1)
+    url = f'https://{account}.github.io/{name}/install.sh'
     return f'''```bash
-mkdir -p ajr-connect-download
-cd ajr-connect-download
-
-curl -fL -o ajr-connect-6-linux-x86_64.tar.gz \\
-  {base_url}/ajr-connect-6-linux-x86_64.tar.gz
-curl -fL -o SHA256SUMS \\
-  {base_url}/SHA256SUMS
-
-sha256sum --ignore-missing -c SHA256SUMS
-tar -xzf ajr-connect-6-linux-x86_64.tar.gz
-cd ajr-connect
-python3 install.py --check
-python3 install.py
+curl -fsSL {url} | bash
 ```
 
-Prossiga para extração e instalação somente se o download e a verificação
-de integridade passarem. Execute o instalador sem sudo, dentro da sessão
-gráfica GNOME. Depois da instalação, saia da sessão e entre novamente.
+O comando baixa o pacote, confere a integridade e executa o instalador.
+Execute sem sudo, dentro da sessão gráfica GNOME. Depois da instalação,
+saia da sessão e entre novamente.
 '''
 
 

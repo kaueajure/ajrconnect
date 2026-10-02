@@ -3,6 +3,7 @@
 !/.gitignore
 !/README.md
 !/LICENSE
+!/docs/
 !/implementacao/
 
 /implementacao/*
@@ -56,6 +57,7 @@
 /implementacao/tests/*
 !/implementacao/tests/test_compatibility.py
 !/implementacao/tests/test_distribution.py
+!/implementacao/tests/test_bootstrap.py
 
 # Ignore generated or personal files even inside allowed source directories.
 __pycache__/

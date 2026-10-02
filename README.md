@@ -17,29 +17,22 @@ em Docker. Docker não é necessário no computador que executa o cliente.
 
 ## Download e instalação
 
-Os comandos abaixo usam os arquivos da versão `v6.0.0-beta.1` em
-[GitHub Releases](https://github.com/kaueajure/ajrconnect/releases).
-Execute no terminal da sessão gráfica:
+Execute um único comando no terminal da sessão gráfica:
 
 ```bash
-mkdir -p ajr-connect-download
-cd ajr-connect-download
-
-curl -fL -o ajr-connect-6-linux-x86_64.tar.gz \
-  https://github.com/kaueajure/ajrconnect/releases/download/v6.0.0-beta.1/ajr-connect-6-linux-x86_64.tar.gz
-curl -fL -o SHA256SUMS \
-  https://github.com/kaueajure/ajrconnect/releases/download/v6.0.0-beta.1/SHA256SUMS
-
-sha256sum --ignore-missing -c SHA256SUMS
-tar -xzf ajr-connect-6-linux-x86_64.tar.gz
-cd ajr-connect
-python3 install.py --check
-python3 install.py
+curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash
 ```
 
-Prossiga para extração e instalação somente se os downloads e a verificação
-de integridade passarem. Execute o instalador **sem sudo**. Após instalar,
-saia da sessão GNOME e entre novamente para carregar a AJR Bar.
+O comando baixa a versão de teste, confere a integridade e executa o
+instalador. Ele verifica o ambiente antes de alterar arquivos, preserva as
+configurações existentes e cria um backup. Execute **sem sudo**.
+Após instalar, saia da sessão GNOME e entre novamente para carregar a AJR Bar.
+
+Para apenas verificar o ambiente:
+
+```bash
+curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash -s -- --check
+```
 
 Abra AJR Connect pelo menu de aplicativos. Configure servidor, usuário,
 senha, monitor e pastas compartilhadas. Novas instalações começam com esses
@@ -79,6 +72,9 @@ máquina de desenvolvimento, usando diretórios de usuário temporários e
 configurações GNOME em memória. Os pacotes extraídos passaram na verificação
 de compatibilidade e o cliente foi recompilado a partir dos fontes distribuídos.
 O cliente também foi testado com uma VM real em dois monitores.
+
+O comando único possui quatro verificações adicionais: ajuda, sessão gráfica,
+execução sem sudo e bloqueio de download com integridade incorreta.
 
 Essas verificações ainda não substituem um teste em uma instalação limpa do Zorin.
 Relate problemas em [Issues](https://github.com/kaueajure/ajrconnect/issues),
