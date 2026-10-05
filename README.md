@@ -3,19 +3,18 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.5**. Inclui conexões salvas, seleção de pastas,
-atalhos personalizáveis e atualização da AJR Bar na sessão atual.
+Versão de teste: **6.0.0-beta.6**. Inclui a nova interface, conexões salvas,
+seleção de pastas, atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
-## Nova interface em desenvolvimento
+## Nova interface
 
-Os fontes locais incluem uma reformulação visual para a próxima versão:
+A interface tem
 identidade própria em grafite e violeta, temas claro/escuro, conexões com busca
 na barra lateral e áreas separadas para conexão, tela/teclado e compartilhamento.
 O tema escolhido é preservado e vale para todas as conexões. Em janelas menores,
 a lista de conexões fica em um painel acessível pelo botão do cabeçalho.
-Essa interface ainda não está no instalador público da beta.5.
 
 A apresentação está em `implementacao/ui.py`, os editores de pasta e atalho em
 `implementacao/dialogs.py` e os estilos e ícones em `implementacao/assets/`.
@@ -161,6 +160,22 @@ ou se esta instalação precisa da ativação inicial da ponte.
 
 Para gerar os pacotes localmente, execute `python3 package.py` a partir de
 `implementacao/`. Os arquivos são gerados em `dist/`, fora do controle de versão.
+
+## Publicar uma nova versão
+
+Subir o código não publica os pacotes instaláveis. Para cada versão:
+
+1. Atualize `TAG` em `implementacao/prepare_release.py` e as versões nos READMEs.
+2. Gere os pacotes com `python3 implementacao/package.py` e execute os testes.
+3. Gere as notas com `python3 implementacao/prepare_release.py --repo kaueajure/ajrconnect --output /tmp/ajr-publicacao-nova`. Use um diretório de saída que ainda não exista. Faça commit dos fontes correspondentes e envie para `main` antes de criar a Release.
+4. No GitHub, abra **Releases → Draft a new release**, escolha uma tag nova e a branch `main`, cole as notas geradas e anexe os três arquivos de `dist/`: o pacote Linux, os fontes e `SHA256SUMS`. Para versões beta, marque **Pre-release** e publique.
+5. Depois que os downloads estiverem disponíveis, atualize `version` e `expected` em `docs/install.sh`. O hash está em `dist/SHA256SUMS`, na linha do pacote Linux. Atualize também a versão e o link em `docs/index.md`, faça commit e envie para `main`.
+6. Aguarde o GitHub Pages publicar e confira `curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash -s -- --check`.
+
+O mesmo comando de instalação passa a atualizar os usuários para a versão nova,
+preservando configurações. Não substitua os arquivos de uma Release antiga;
+publique uma tag nova para cada atualização.
+Consulte também as [instruções oficiais do GitHub](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository).
 
 ## Validação e problemas
 

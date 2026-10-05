@@ -1,6 +1,6 @@
 # AJR Connect 6
 
-Versão em desenvolvimento: **6.0.0-beta.6** (ainda não publicada).
+Versão de teste: **6.0.0-beta.6**.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
