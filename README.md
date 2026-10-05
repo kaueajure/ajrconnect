@@ -8,6 +8,19 @@ atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
+## Nova interface em desenvolvimento
+
+Os fontes locais incluem uma reformulação visual para a próxima versão:
+identidade própria em grafite e violeta, temas claro/escuro, conexões com busca
+na barra lateral e áreas separadas para conexão, tela/teclado e compartilhamento.
+O tema escolhido é preservado e vale para todas as conexões. Em janelas menores,
+a lista de conexões fica em um painel acessível pelo botão do cabeçalho.
+Essa interface ainda não está no instalador público da beta.5.
+
+A apresentação está em `implementacao/ui.py`, os editores de pasta e atalho em
+`implementacao/dialogs.py` e os estilos e ícones em `implementacao/assets/`.
+O controlador de perfis e sessões permanece em `implementacao/ajr_app.py`.
+
 ## Instalação em outras distribuições
 
 O download e a instalação não bloqueiam por nome ou versão da distribuição,
@@ -138,6 +151,7 @@ python3 install.py --check
 python3 -m unittest discover -s tests -p 'test_*.py' -v
 python3 tests/check_keyboard_policy.py
 python3 tests/check_live_update.py
+python3 tests/check_desktop_ui.py --output ../previews
 ```
 
 Os testes de interface e teclado usam Xvfb e não acessam a VM nem o chaveiro

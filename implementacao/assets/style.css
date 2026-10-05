@@ -1,0 +1,65 @@
+/* AJR's shared palette is supplied by ui.py. Avoid depending on the desktop theme. */
+.ajr-window { background: @ajr_window; color: @ajr_text; font-family: Inter, "DejaVu Sans", sans-serif; font-size: 14px; }
+.ajr-header { background: @ajr_window; border-bottom: 1px solid @ajr_border; box-shadow: none; min-height: 48px; }
+.ajr-header-title { color: @ajr_muted; font-size: 13px; font-weight: 500; }
+.ajr-header button { border-radius: 9px; }
+.ajr-sidebar { background: @ajr_sidebar; border-right: 1px solid @ajr_border; padding: 28px 20px 20px; }
+.ajr-brand-title { font-weight: 800; font-size: 25px; letter-spacing: 1px; }
+.ajr-brand-subtitle { color: @ajr_muted; font-size: 9px; font-weight: 600; }
+.ajr-eyebrow { color: @ajr_muted; font-size: 10px; font-weight: 700; letter-spacing: 1.5px; }
+.ajr-count { background: @ajr_raised; color: @ajr_muted; border-radius: 6px; padding: 2px 6px; font-size: 11px; }
+.ajr-new { background: @ajr_selection; color: @ajr_accent; border: 1px solid alpha(@ajr_accent, .25); box-shadow: none; min-height: 38px; border-radius: 10px; font-weight: 600; }
+.ajr-new:hover { background: alpha(@ajr_accent, .2); }
+.ajr-search { background: @ajr_window; border: 1px solid @ajr_control; border-radius: 9px; min-height: 36px; box-shadow: none; }
+.ajr-search text { background: transparent; }
+.ajr-profiles { background: transparent; }
+.ajr-profiles row { padding: 14px 10px; border-radius: 11px; margin-bottom: 7px; border: 1px solid transparent; }
+.ajr-profiles row:hover { background: @ajr_raised; }
+.ajr-profiles row:selected { background: @ajr_selection; border-color: alpha(@ajr_accent, .4); color: @ajr_text; }
+.ajr-profile-icon { color: @ajr_accent; }
+.ajr-profile-name { font-size: 13px; font-weight: 600; }
+.ajr-profile-host { font-size: 11px; color: @ajr_muted; }
+.ajr-sidebar-footer { border-top: 1px solid @ajr_border; padding-top: 18px; }
+.ajr-sidebar-tagline { color: @ajr_muted; font-size: 12px; }
+.ajr-workspace { padding: 24px 32px 20px; }
+.ajr-page-title { font-size: 29px; font-weight: 750; letter-spacing: -.7px; }
+.ajr-muted { color: @ajr_muted; font-size: 13px; }
+.ajr-hero { background: @ajr_surface; border: 1px solid @ajr_border; border-radius: 16px; padding: 16px 24px; }
+.ajr-hero-title { font-size: 22px; font-weight: 700; letter-spacing: -.4px; }
+.ajr-tabs { background: @ajr_sidebar; border: 1px solid @ajr_border; border-radius: 11px; padding: 4px; }
+.ajr-tab { color: @ajr_muted; background: transparent; border: 1px solid transparent; box-shadow: none; border-radius: 8px; padding: 9px 6px; font-size: 12px; font-weight: 500; }
+.ajr-tab:hover { color: @ajr_text; background: @ajr_raised; }
+.ajr-tab:checked { color: @ajr_accent; background: @ajr_surface; border-color: @ajr_border; }
+.ajr-section { background: @ajr_surface; border: 1px solid @ajr_border; border-radius: 14px; padding: 24px; }
+.ajr-section-title { font-size: 16px; font-weight: 650; }
+.ajr-field-label { color: @ajr_text; font-size: 12px; font-weight: 600; }
+.ajr-field-hint { color: @ajr_muted; font-size: 11px; }
+.ajr-entry { background: @ajr_window; color: @ajr_text; border: 1px solid @ajr_control; border-radius: 9px; box-shadow: none; padding: 8px 12px; min-height: 26px; }
+.ajr-entry text { background: transparent; color: @ajr_text; }
+.ajr-entry:focus-within { border-color: @ajr_accent; outline: 2px solid alpha(@ajr_accent, .24); outline-offset: 1px; }
+.ajr-window preferencesgroup > box > label { color: @ajr_text; }
+.ajr-window .boxed-list { background: @ajr_surface; color: @ajr_text; border: 1px solid @ajr_border; border-radius: 12px; box-shadow: none; }
+.ajr-window row { border-color: @ajr_border; }
+.ajr-window .ajr-profiles row:not(:selected) { border-color: transparent; }
+.ajr-window row .subtitle { color: @ajr_muted; opacity: 1; font-size: 12px; }
+.ajr-window row .title { font-size: 13px; }
+.ajr-window switch:checked { background: @ajr_button; color: @ajr_on_button; }
+.ajr-secondary { color: @ajr_accent; background: @ajr_selection; border: 1px solid alpha(@ajr_accent, .3); box-shadow: none; border-radius: 9px; min-height: 34px; padding: 4px 16px; }
+.ajr-secondary:hover { background: alpha(@ajr_accent, .23); }
+.ajr-delete { background: transparent; color: @ajr_muted; box-shadow: none; border: none; }
+.ajr-delete:hover { color: @ajr_danger; background: alpha(@ajr_danger, .08); }
+.ajr-footer { background: @ajr_window; border-top: 1px solid @ajr_border; padding: 16px 32px 20px; }
+.ajr-status-title { font-size: 12px; font-weight: 600; }
+.ajr-status .ajr-muted { font-size: 11px; }
+.ajr-status image { color: @ajr_muted; }
+.ajr-online image { color: @ajr_success; }
+.ajr-connect { background: @ajr_button; color: @ajr_on_button; border: 1px solid transparent; border-radius: 10px; padding: 0 20px; font-weight: 700; box-shadow: none; }
+.ajr-connect:hover { background: shade(@ajr_button, 1.1); }
+.ajr-connect:not(.suggested-action) { color: @ajr_danger; background: alpha(@ajr_danger, .1); border-color: alpha(@ajr_danger, .3); }
+.ajr-error { color: @ajr_danger; background: alpha(@ajr_danger, .08); border: 1px solid alpha(@ajr_danger, .3); border-radius: 8px; padding: 10px 12px; font-size: 12px; }
+.ajr-window button:focus-visible, .ajr-dialog button:focus-visible { outline: 2px solid @ajr_accent; outline-offset: 2px; }
+.ajr-window button:active { background: alpha(@ajr_accent, .3); }
+.ajr-window button:disabled { opacity: .45; }
+.ajr-dialog { background: @ajr_window; color: @ajr_text; }
+.ajr-dialog .boxed-list { background: @ajr_surface; border: 1px solid @ajr_border; box-shadow: none; }
+.ajr-shortcut-preview { background: @ajr_surface; border: 1px solid @ajr_border; border-radius: 12px; color: @ajr_accent; font-size: 22px; padding: 24px; }

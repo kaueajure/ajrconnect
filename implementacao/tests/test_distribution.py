@@ -53,6 +53,10 @@ with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GN
     assert cfg.read_bytes() == original
     assert (home / '.local/bin/ajr-connect').is_file()
     assert '@AJR_LAUNCHER@' not in desktop.read_text()
+    assert '@AJR_ICON@' not in desktop.read_text()
+    assert 'Icon=' + str(install.APP / 'assets/ajr-connect.svg').replace(chr(92), chr(92) * 2) in desktop.read_text()
+    for asset in ('style.css', 'ajr-connect.svg', 'workspace.svg'):
+        assert (install.APP / 'assets' / asset).is_file()
     assert install.desktop_exec(home / '.local/bin/ajr-connect') in desktop.read_text()
     metadata = json.loads((install.DATA / 'last-install.json').read_text())
     if sys.argv[2] in ('hot-update', 'legacy-update'):

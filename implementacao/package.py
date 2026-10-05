@@ -11,17 +11,17 @@ import tarfile
 import tempfile
 
 BASE = Path(__file__).resolve().parent
-RUNTIME_FILES = ('ajr_app.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
+RUNTIME_FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
                  'enable-extension.py', 'ajr-connect.desktop.in', 'install.py',
                  'rollback.py', 'check_compatibility.py')
 RUNTIME_FILES += ('dependencies.py',)
-SOURCE_FILES = ('native/build.py', 'native/ajr.c', 'native/ajr.h',
+SOURCE_FILES = ('DESIGN.md', 'native/build.py', 'native/ajr.c', 'native/ajr.h',
                 'native/ajr-freerdp.patch', 'tests/test_compatibility.py',
                 'tests/test_distribution.py')
 SOURCE_FILES += ('tests/test_dependencies.py',)
 SOURCE_FILES += ('tests/test_preferences.py', 'tests/check_keyboard_policy.py',
                  'tests/keyboard_policy.c')
-SOURCE_FILES += ('tests/test_integration_update.py', 'tests/check_live_update.py')
+SOURCE_FILES += ('tests/test_integration_update.py', 'tests/check_live_update.py', 'tests/check_desktop_ui.py')
 SOURCE_TREES = ('native/vendor/FreeRDP-2.11.5/client/X11',
                 'native/vendor/FreeRDP-2.11.5/resources',
                 'native/sdk/usr/include/freerdp2', 'native/sdk/usr/include/winpr2')
@@ -41,6 +41,8 @@ def stage_runtime(target, binary):
         copy_file(BASE / name, target / name, name in ('ajr-connect', 'ajr-control'))
     for name in ('extension.js', 'integration.js', 'stylesheet.css', 'metadata.json'):
         copy_file(BASE / 'extensao' / name, target / 'extensao' / name)
+    for name in ('style.css', 'ajr-connect.svg', 'workspace.svg'):
+        copy_file(BASE / 'assets' / name, target / 'assets' / name)
     copy_file(binary, target / 'native/ajr-freerdp', True)
     copy_file(BASE / 'distribution/README.md', target / 'README.md')
     copy_file(BASE / 'distribution/NOTICE.txt', target / 'NOTICE.txt')

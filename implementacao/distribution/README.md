@@ -1,8 +1,15 @@
 # AJR Connect 6
 
-Versão de teste: **6.0.0-beta.5**.
+Versão em desenvolvimento: **6.0.0-beta.6** (ainda não publicada).
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
+
+A interface usa identidade própria em grafite e violeta. As conexões salvas
+ficam na barra lateral, com busca por nome, servidor ou usuário. Use as abas
+**Conexão**, **Tela e teclado** e **Compartilhamento** para ajustar cada área.
+O botão de sol/lua no cabeçalho alterna o tema claro/escuro e preserva a escolha.
+Em janelas menores, abra a barra lateral pelo botão do cabeçalho ou use o seletor
+de conexão acima das abas.
 
 ## Requisitos de execução
 

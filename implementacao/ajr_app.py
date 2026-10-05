@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AJR Connect: native GNOME connection manager and session controls."""
+"""AJR Connect: profile and session controller for the desktop workspace."""
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -8,111 +8,25 @@ from pathlib import Path
 import copy
 import json
 import os
-import re
 import secrets
 import shutil
 import socket
 import subprocess
 import threading
 import time
-from core import (APP_DIR, DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
+from core import (DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
                   DEFAULT, PROFILE_KEYS, detect_monitors, host_port, load_cfg,
                   resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
 from integration import installed_revision
+from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
+from ui import DesktopView
 
 APP_ID = 'com.ajure.AJRConnect'
 EXTENSION_ID = 'ajr-connect@ajure.local'
 LOCAL_BUS = 'org.gnome.Shell'
 LOCAL_PATH = '/com/ajure/AJRConnect'
 LOCAL_INTERFACE = 'com.ajure.AJRConnect.Keyboard'
-
-
-def shortcut_parts(value):
-    valid, key, modifiers = Gtk.accelerator_parse(value)
-    allowed = Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK | \
-              Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
-    if not valid or not key or not Gtk.accelerator_valid(key, modifiers) or modifiers & ~allowed or not modifiers & (
-            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK):
-        raise ValueError('Escolha uma combinação com Ctrl, Alt ou Super e uma tecla.')
-    return Gdk.keyval_to_lower(key), modifiers
-
-
-class ShortcutEditor(Adw.Window):
-    def __init__(self, parent, current, callback):
-        super().__init__(transient_for=parent, modal=True, title='Atalho de tela cheia')
-        self.callback, self.value = callback, current
-        self.set_default_size(420, 240)
-        view = Adw.ToolbarView()
-        view.add_top_bar(Adw.HeaderBar())
-        self.set_content(view)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-        for side in ('top', 'bottom', 'start', 'end'):
-            getattr(box, f'set_margin_{side}')(24)
-        view.set_content(box)
-        box.append(Gtk.Label(label='Pressione a combinação desejada com Ctrl, Alt ou Super.', wrap=True))
-        self.preview = Gtk.Label(label=Gtk.accelerator_get_label(*shortcut_parts(current)), wrap=True)
-        self.preview.add_css_class('title-2')
-        box.append(self.preview)
-        self.error = Gtk.Label(wrap=True)
-        self.error.add_css_class('error')
-        box.append(self.error)
-        actions = Gtk.Box(spacing=8, homogeneous=True)
-        box.append(actions)
-        reset = Gtk.Button(label='Restaurar padrão')
-        reset.connect('clicked', lambda *_: self.set_shortcut(DEFAULT['fullscreen_shortcut']))
-        actions.append(reset)
-        save = Gtk.Button(label='Salvar atalho')
-        save.add_css_class('suggested-action')
-        save.connect('clicked', lambda *_: self.save())
-        actions.append(save)
-        controller = Gtk.EventControllerKey()
-        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
-        controller.connect('key-pressed', self.key_pressed)
-        self.add_controller(controller)
-
-    def set_shortcut(self, value):
-        self.value = value
-        self.preview.set_text(Gtk.accelerator_get_label(*shortcut_parts(value)))
-        self.error.set_text('')
-
-    def key_pressed(self, _controller, key, _code, state):
-        if Gdk.keyval_name(key) in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R',
-                'Super_L', 'Super_R', 'Shift_L', 'Shift_R', 'Meta_L', 'Meta_R'):
-            return True
-        modifiers = state & Gtk.accelerator_get_default_mod_mask()
-        if not modifiers:
-            if key == Gdk.KEY_Escape:
-                self.close()
-                return True
-            return False  # Keep Tab navigation and keyboard activation of buttons.
-        if key == Gdk.KEY_ISO_Left_Tab:
-            key = Gdk.KEY_Tab
-        value = Gtk.accelerator_name(Gdk.keyval_to_lower(key), modifiers)
-        try:
-            shortcut_parts(value)
-        except ValueError as exc:
-            self.error.set_text(str(exc))
-        else:
-            self.set_shortcut(value)
-        return True
-
-    def save(self):
-        self.callback(self.value)
-        self.close()
-
-
-def normalize_share_name(value):
-    return re.sub(r'[^A-Za-z0-9_-]+', '_', value.strip()).strip('_')[:24] or 'Pasta'
-
-
-def unique_name(value, shares):
-    base = normalize_share_name(value)
-    used = {s['name'].lower() for s in shares}
-    name, i = base, 2
-    while name.lower() in used:
-        name, i = f'{base}{i}', i + 1
-    return name
 
 
 def secret(server, user, operation, password=None):
@@ -130,93 +44,6 @@ def secret(server, user, operation, password=None):
         return ''
 
 
-class ShareEditor(Adw.Window):
-    def __init__(self, parent, share, on_save):
-        super().__init__(transient_for=parent, modal=True, title='Pasta compartilhada')
-        self.callback = on_save
-        self._chooser = None
-        self.connect('close-request', self.close_requested)
-        self.set_default_size(480, 280)
-        view = Adw.ToolbarView()
-        self.set_content(view)
-        header = Adw.HeaderBar()
-        view.add_top_bar(header)
-        button = Gtk.Button(label='Salvar')
-        button.add_css_class('suggested-action')
-        button.connect('clicked', self.save)
-        header.pack_end(button)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-        for side in ('top', 'bottom', 'start', 'end'):
-            getattr(box, f'set_margin_{side}')(24)
-        view.set_content(box)
-        group = Adw.PreferencesGroup(description='A pasta ficará disponível no Explorador do Windows.')
-        box.append(group)
-        self.name = Adw.EntryRow(title='Nome no Windows', text=share.get('name', ''))
-        self.path = Adw.EntryRow(title='Pasta no Linux', text=share.get('path', ''))
-        group.add(self.name)
-        group.add(self.path)
-        choose = Gtk.Button(icon_name='folder-open-symbolic', tooltip_text='Escolher pasta')
-        choose.add_css_class('flat')
-        choose.set_valign(Gtk.Align.CENTER)
-        choose.connect('clicked', self.choose)
-        self.path.add_suffix(choose)
-        self.error = Gtk.Label(wrap=True, xalign=0)
-        self.error.add_css_class('error')
-        box.append(self.error)
-
-    def choose(self, *_):
-        if self._chooser:
-            self._chooser.present()
-            return
-        # A GTK dialog avoids broken desktop portals on some Zorin sessions.
-        # Keep a strong reference until response/close, including with PyGObject.
-        chooser = Gtk.FileChooserDialog(title='Escolher pasta no Linux',
-            transient_for=self, modal=True, action=Gtk.FileChooserAction.SELECT_FOLDER)
-        self._chooser = chooser
-        chooser.add_buttons('Cancelar', Gtk.ResponseType.CANCEL,
-                            'Selecionar pasta', Gtk.ResponseType.ACCEPT)
-        chooser.set_default_response(Gtk.ResponseType.ACCEPT)
-        current = Path(self.path.get_text().strip()).expanduser()
-        if not self.path.get_text().strip() or not current.is_dir():
-            current = Path.home()
-        try:
-            chooser.set_current_folder(Gio.File.new_for_path(str(current)))
-        except GLib.Error as exc:
-            self.error.set_text('Não foi possível abrir a pasta inicial: ' + exc.message)
-        def response(dialog, result):
-            if result == Gtk.ResponseType.ACCEPT:
-                chosen = dialog.get_file()
-                if chosen and chosen.get_path():
-                    self.path.set_text(chosen.get_path())
-                    if not self.name.get_text().strip():
-                        self.name.set_text(normalize_share_name(Path(chosen.get_path()).name))
-                    self.error.set_text('')
-                else:
-                    self.error.set_text('Selecione uma pasta local ou monte a pasta de rede no Linux primeiro.')
-            self._chooser = None
-            dialog.destroy()
-        chooser.connect('response', response)
-        chooser.present()
-
-    def close_requested(self, *_):
-        if self._chooser:
-            self._chooser.destroy()
-            self._chooser = None
-        return False
-
-    def save(self, *_):
-        path = Path(self.path.get_text().strip()).expanduser()
-        if not self.path.get_text().strip() or not path.is_dir():
-            self.error.set_text('Escolha uma pasta existente no Linux.')
-            self.path.grab_focus()
-            return
-        if ',' in str(path):
-            self.error.set_text('O caminho da pasta não pode conter vírgulas.')
-            return
-        self.callback(dict(name=normalize_share_name(self.name.get_text()), path=str(path.resolve())))
-        self.close()
-
-
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title='AJR Connect')
@@ -230,18 +57,23 @@ class MainWindow(Adw.ApplicationWindow):
         self._integration_ready = False
         self.proc, self.session, self.x11 = None, None, None
         self._status_generation = 0
+        self._status_source = 0
         self._closing = False
         self._started = False
-        self.set_default_size(620, 780)
-        self.set_size_request(420, 400)
+        self.set_default_size(1120, 820)
+        self.set_size_request(620, 480)
         self.connect('close-request', self.close_requested)
-        view = Adw.ToolbarView()
-        self.set_content(view)
-        header = Adw.HeaderBar()
-        header.set_title_widget(Adw.WindowTitle(title='AJR Connect', subtitle='Seu Windows, no seu monitor'))
-        view.add_top_bar(header)
-        self.integration_banner = Adw.Banner(title='')
-        view.add_top_bar(self.integration_banner)
+        self.ui = DesktopView(self)
+        self.refresh_monitors()
+        self.render_shares()
+        self.refresh_profiles()
+        self.profile.connect('notify::selected', self.profile_changed)
+        self.set_shortcut(self.cfg['fullscreen_shortcut'], persist=False)
+        self.lookup_password()
+        self.update_keyboard_options()
+        self.schedule_status()
+        self.ui.update_summary()
+        self._poll = GLib.timeout_add(250, self.poll_session)
         def integration_status():
             try:
                 ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
@@ -262,167 +94,15 @@ class MainWindow(Adw.ApplicationWindow):
                 except GLib.Error:
                     pass
             def done():
+                if self._closing:
+                    return
                 self._integration_ready = ready
                 self.integration_banner.set_title(message)
-                self.integration_banner.set_revealed(not ready)
+                self.integration_banner.set_revealed(not ready and 'único novo login' in message)
+                self.ui.integration_changed(ready)
                 self.update_keyboard_options()
             GLib.idle_add(done)
         threading.Thread(target=integration_status, daemon=True).start()
-        logs = Gtk.Button(icon_name='text-x-generic-symbolic', tooltip_text='Abrir registros da conexão')
-        logs.add_css_class('flat')
-        logs.connect('clicked', lambda *_: self.open_logs())
-        header.pack_end(logs)
-        self.toast = Adw.ToastOverlay()
-        view.set_content(self.toast)
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
-        self.toast.set_child(scroll)
-        clamp = Adw.Clamp(maximum_size=640, tightening_threshold=480)
-        scroll.set_child(clamp)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        for side in ('top', 'bottom', 'start', 'end'):
-            getattr(box, f'set_margin_{side}')(24)
-        clamp.set_child(box)
-        brand = Gtk.Box(spacing=16)
-        icon = Gtk.Image(icon_name='computer-symbolic', pixel_size=40)
-        icon.add_css_class('accent')
-        brand.append(icon)
-        title_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
-        title = Gtk.Label(label='Seu espaço de trabalho Windows', xalign=0, wrap=True)
-        title.add_css_class('title-2')
-        title_box.append(title)
-        subtitle = Gtk.Label(label='Conecte à VM com suas pastas sempre à mão.', xalign=0, wrap=True)
-        subtitle.add_css_class('dim-label')
-        title_box.append(subtitle)
-        brand.append(title_box)
-        box.append(brand)
-        self.status = Adw.ActionRow(title='Verificando conexão', subtitle=self.cfg['server'])
-        self.status_icon = Gtk.Image(icon_name='network-server-symbolic')
-        self.status.add_prefix(self.status_icon)
-        status_group = Adw.PreferencesGroup()
-        status_group.add(self.status)
-        box.append(status_group)
-        self.controls = Gtk.Box(spacing=8, homogeneous=True)
-        for label, command in [('Tela cheia', 'fullscreen'), ('Modo janela', 'restore'),
-                               ('Minimizar', 'minimize')]:
-            button = Gtk.Button(label=label)
-            button.connect('clicked', lambda _b, cmd=command: self.control(cmd))
-            self.controls.append(button)
-        self.controls.set_visible(False)
-        box.append(self.controls)
-        self.form = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
-        box.append(self.form)
-        group = Adw.PreferencesGroup(title='Conexão')
-        self.form.append(group)
-        self.profile = Adw.ComboRow(title='Conexões salvas')
-        group.add(self.profile)
-        self.profile_name = Adw.EntryRow(title='Nome da conexão')
-        group.add(self.profile_name)
-        profile_actions = Gtk.Box(spacing=8, homogeneous=True)
-        for label, callback in [('Nova', self.new_profile), ('Salvar', self.save_profile),
-                                ('Excluir', self.delete_profile)]:
-            button = Gtk.Button(label=label)
-            button.connect('clicked', callback)
-            profile_actions.append(button)
-            if label == 'Excluir':
-                self.profile_delete = button
-        profile_actions.set_margin_top(12)
-        group.add(profile_actions)
-        self.server = Adw.EntryRow(title='Servidor', text=str(self.cfg['server']))
-        self.user = Adw.EntryRow(title='Usuário', text=str(self.cfg['user']))
-        self.password = Adw.PasswordEntryRow(title='Senha')
-        for row in (self.server, self.user, self.password):
-            group.add(row)
-        self.remember = Adw.SwitchRow(title='Lembrar senha desta conexão',
-            subtitle='Armazenada no chaveiro do GNOME.', active=self.cfg['remember'])
-        group.add(self.remember)
-        self.password.connect('entry-activated', lambda *_: self.do_connect())
-        self.server.connect('changed', lambda *_: self.schedule_status())
-        for row in (self.server, self.user):
-            row.connect('changed', self.identity_changed)
-        self.share_group = Adw.PreferencesGroup(title='Pastas no Windows',
-            description='Disponíveis em Este Computador durante a conexão.')
-        self.form.append(self.share_group)
-        self.share_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.share_list.add_css_class('boxed-list')
-        self.share_group.add(self.share_list)
-        add = Gtk.Button(halign=Gtk.Align.START)
-        add_content = Gtk.Box(spacing=6)
-        add_content.append(Gtk.Image(icon_name='list-add-symbolic'))
-        add_content.append(Gtk.Label(label='Adicionar pasta'))
-        add.set_child(add_content)
-        add.set_margin_top(12)
-        add.connect('clicked', lambda *_: self.edit_share())
-        self.share_group.add(add)
-        self.render_shares()
-        display = Adw.PreferencesGroup(title='Tela e teclado')
-        self.form.append(display)
-        self.monitor = Adw.ComboRow(title='Monitor', subtitle='A janela e a tela cheia usam esta tela.')
-        refresh = Gtk.Button(icon_name='view-refresh-symbolic', tooltip_text='Atualizar monitores')
-        refresh.add_css_class('flat')
-        refresh.connect('clicked', lambda *_: self.refresh_monitors())
-        refresh.set_valign(Gtk.Align.CENTER)
-        self.monitor.add_suffix(refresh)
-        display.add(self.monitor)
-        self.fullscreen = Adw.SwitchRow(title='Iniciar em tela cheia',
-            subtitle='Use o atalho abaixo para alternar entre janela e tela cheia.', active=self.cfg['fullscreen'])
-        display.add(self.fullscreen)
-        self.shortcut = Adw.ActionRow(title='Atalho de tela cheia')
-        change = Gtk.Button(label='Alterar', valign=Gtk.Align.CENTER)
-        change.connect('clicked', lambda *_: ShortcutEditor(self,
-            self.cfg['fullscreen_shortcut'], self.set_shortcut).present())
-        self.shortcut.add_suffix(change)
-        display.add(self.shortcut)
-        keyboard = Adw.PreferencesGroup(title='Prioridade dos atalhos',
-            description='Ative para executar no Windows remoto. Desative para executar no computador local.')
-        self.form.append(keyboard)
-        self.keyboard_mode = Adw.ComboRow(title='Encaminhar atalhos ao Windows',
-            model=Gtk.StringList.new(['Somente em tela cheia', 'Também em modo janela', 'Manter atalhos no computador local']),
-            selected=('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
-        keyboard.add(self.keyboard_mode)
-        self.keyboard_rows = {}
-        for key, title, subtitle in [
-            ('remote_alt_tab', 'Alt + Tab', 'Alternar aplicativos; Shift inverte a ordem.'),
-            ('remote_super', 'Tecla Windows / Super', 'Pressionada sozinha: menu Iniciar ou visão de atividades local.'),
-            ('remote_alt_f4', 'Alt + F4', 'Fechar a janela remota ou a janela da conexão local.')]:
-            row = Adw.SwitchRow(title=title, subtitle=subtitle, active=self.cfg[key])
-            keyboard.add(row)
-            self.keyboard_rows[key] = row
-        self.keyboard_note = Adw.ActionRow(title='Integração com o desktop')
-        keyboard.add(self.keyboard_note)
-        self.keyboard_mode.connect('notify::selected', lambda *_: self.update_keyboard_options())
-        self.quality = Adw.ComboRow(title='Qualidade',
-            model=Gtk.StringList.new(['Equilibrada', 'Mais qualidade', 'Mais leve']),
-            selected=self.cfg['quality'])
-        display.add(self.quality)
-        options = Adw.PreferencesGroup(title='Preferências')
-        self.form.append(options)
-        self.clipboard = Adw.SwitchRow(title='Compartilhar área de transferência', active=self.cfg['clipboard'])
-        options.add(self.clipboard)
-        self.error = Gtk.Label(xalign=0, wrap=True)
-        self.error.add_css_class('error')
-        self.error.set_visible(False)
-        footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        for side in ('top', 'bottom', 'start', 'end'):
-            getattr(footer, f'set_margin_{side}')(16)
-        footer.append(self.error)
-        view.add_bottom_bar(footer)
-        self.connect_btn = Gtk.Button(label='Conectar à VM', height_request=48)
-        self.connect_btn.add_css_class('suggested-action')
-        self.connect_btn.connect('clicked', lambda *_: self.do_connect())
-        footer.append(self.connect_btn)
-        hint = Gtk.Label(label='Em tela cheia, passe o mouse no topo central para abrir a AJR Bar.', wrap=True)
-        hint.add_css_class('dim-label')
-        hint.add_css_class('caption')
-        footer.append(hint)
-        self.refresh_monitors()
-        self.schedule_status()
-        # Keyring access stays in the application; no password is logged or exported.
-        self.refresh_profiles()
-        self.profile.connect('notify::selected', self.profile_changed)
-        self.set_shortcut(self.cfg['fullscreen_shortcut'], persist=False)
-        self.lookup_password()
-        self.update_keyboard_options()
-        self._poll = GLib.timeout_add(250, self.poll_session)
 
     def refresh_monitors(self):
         try:
@@ -436,6 +116,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.monitor.set_selected(self.monitors.index(selected) if selected else 0)
         if self.cfg.get('monitor_connector') and selected is None:
             self.show_error('O monitor salvo foi desconectado. Selecione outra tela antes de conectar.')
+        if hasattr(self, 'ui'):
+            self.ui.update_summary()
 
     def persist(self):
         self.cfg.update(server=self.server.get_text().strip(), user=self.user.get_text().strip(),
@@ -450,6 +132,7 @@ class MainWindow(Adw.ApplicationWindow):
         if self.cfg['active_profile']:
             store_profile(self.cfg, self.profile_name.get_text())
         save_cfg(self.cfg)
+        self.ui.update_summary()
 
     def refresh_profiles(self):
         self._profiles_updating = True
@@ -461,6 +144,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.profile.set_selected(index if index is not None else (Gtk.INVALID_LIST_POSITION if profiles else 0))
         self.profile_name.set_text(profiles[index]['name'] if index is not None else '')
         self._profiles_updating = False
+        self.ui.render_profiles()
 
     def identity_changed(self, *_):
         self._password_generation += 1
@@ -505,6 +189,7 @@ class MainWindow(Adw.ApplicationWindow):
             profile = next(p for p in self.cfg['profiles'] if p['id'] == self.cfg['active_profile'])
             self.profile_name.set_text(profile['name'])
             self.profile_delete.set_sensitive(True)
+        self.ui.render_profiles()
         self.show_error('')
         self.lookup_password()
         self.schedule_status()
@@ -521,7 +206,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.persist()
         select_profile(self.cfg, profile_id)
         save_cfg(self.cfg)
-        # Replacing a ComboRow model inside notify::selected can recurse/crash GTK.
+        # Keep the selector model stable while handling notify::selected.
         self.apply_profile(refresh_profiles=False)
 
     def save_profile(self, *_):
@@ -549,6 +234,9 @@ class MainWindow(Adw.ApplicationWindow):
         self.cfg['active_profile'] = ''
         save_cfg(self.cfg)
         self.apply_profile()
+        self.ui.show_page('connection')
+        if self.ui.split.get_collapsed():
+            self.ui.split.set_show_sidebar(False)
         self.profile_name.grab_focus()
 
     def delete_profile(self, *_):
@@ -602,8 +290,7 @@ class MainWindow(Adw.ApplicationWindow):
         while (child := self.share_list.get_first_child()) is not None:
             self.share_list.remove(child)
         if not self.cfg['shares']:
-            self.share_list.append(Adw.ActionRow(title='Nenhuma pasta compartilhada',
-                subtitle='Adicione uma pasta para acessá-la no Windows.'))
+            self.share_list.append(self.ui.empty_shares())
         for i, share in enumerate(self.cfg['shares']):
             row = Adw.ActionRow(title=share['name'], subtitle=share['path'], subtitle_lines=1)
             row.add_prefix(Gtk.Image(icon_name='folder-symbolic'))
@@ -615,6 +302,8 @@ class MainWindow(Adw.ApplicationWindow):
                 button.connect('clicked', callback)
                 row.add_suffix(button)
             self.share_list.append(row)
+        if hasattr(self, 'ui'):
+            self.ui.update_summary()
 
     def edit_share(self, index=None):
         original = self.cfg['shares'][index] if index is not None else {}
@@ -637,16 +326,30 @@ class MainWindow(Adw.ApplicationWindow):
     def show_error(self, text):
         self.error.set_text(text)
         self.error.set_visible(bool(text))
+        if text:
+            self.error.grab_focus()
 
     def set_status(self, title, subtitle, icon='network-server-symbolic'):
         self.status.set_title(title)
         self.status.set_subtitle(subtitle)
         self.status_icon.set_from_icon_name(icon)
+        self.ui.update_status(title, icon)
 
     def schedule_status(self):
         self._status_generation += 1
         generation = self._status_generation
-        server = self.server.get_text()
+        if self._status_source:
+            GLib.source_remove(self._status_source)
+            self._status_source = 0
+        server = self.server.get_text().strip()
+        if hasattr(self, 'ui'):
+            self.ui.update_summary()
+        if not server:
+            if not self.proc:
+                self.set_status('Configure sua conexão', 'Informe o servidor para começar.')
+            return
+        if not self.proc:
+            self.set_status('Verificando servidor', server)
         def check():
             try:
                 with socket.create_connection(host_port(server), timeout=1):
@@ -656,11 +359,16 @@ class MainWindow(Adw.ApplicationWindow):
                 online = False
             def done():
                 if not self._closing and generation == self._status_generation and not self.proc:
-                    self.set_status('VM disponível' if online else 'VM indisponível',
-                        server if online else 'Confira o servidor e se a VM está ligada.',
+                    self.set_status('Servidor disponível' if online else 'Servidor indisponível',
+                        server if online else 'Confira o endereço e se o Windows está ligado.',
                         'network-transmit-receive-symbolic' if online else 'network-offline-symbolic')
             GLib.idle_add(done)
-        threading.Thread(target=check, daemon=True).start()
+        def start_check():
+            self._status_source = 0
+            if not self._closing and generation == self._status_generation:
+                threading.Thread(target=check, daemon=True).start()
+            return GLib.SOURCE_REMOVE
+        self._status_source = GLib.timeout_add(250, start_check)
 
     def do_connect(self):
         if self.proc:
@@ -703,7 +411,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.connect_btn.set_sensitive(False)
         self.form.set_sensitive(False)
         self.connect_btn.set_label('Conectando…')
-        self.set_status('Conectando à VM', self.cfg['server'])
+        self.set_status('Conectando ao Windows', self.cfg['server'])
         # Run network/keyring work off the GTK thread.
         cfg = dict(self.cfg)
         def launch():
@@ -769,7 +477,7 @@ class MainWindow(Adw.ApplicationWindow):
     def launch_failed(self, message):
         self.form.set_sensitive(True)
         self.connect_btn.set_sensitive(True)
-        self.connect_btn.set_label('Conectar à VM')
+        self.connect_btn.set_label('Conectar ao Windows')
         self.show_error('Não foi possível conectar. ' + message)
         self.schedule_status()
 
@@ -797,7 +505,7 @@ class MainWindow(Adw.ApplicationWindow):
             self._started = False
             self.controls.set_visible(False)
             self.form.set_sensitive(True)
-            self.connect_btn.set_label('Conectar à VM')
+            self.connect_btn.set_label('Conectar ao Windows')
             self.connect_btn.add_css_class('suggested-action')
             self.set_status('Sessão encerrada', 'Você pode conectar novamente.')
             if not started or code not in (0, 11, 131):
@@ -860,6 +568,9 @@ class MainWindow(Adw.ApplicationWindow):
             return True
         self.persist()
         self._closing = True
+        if self._status_source:
+            GLib.source_remove(self._status_source)
+            self._status_source = 0
         GLib.source_remove(self._poll)
         return False
 

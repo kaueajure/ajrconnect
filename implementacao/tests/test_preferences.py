@@ -16,6 +16,20 @@ import core
 
 
 class ProfileTests(unittest.TestCase):
+    def test_appearance_is_preserved_across_profiles_and_restart(self):
+        cfg = copy.deepcopy(core.DEFAULT)
+        cfg.update(server='one.example', user='first', appearance='light')
+        first = core.store_profile(cfg, 'Primeiro')['id']
+        cfg.update(active_profile='', server='two.example', user='second')
+        core.store_profile(cfg, 'Segundo')
+        core.select_profile(cfg, first)
+        self.assertEqual(cfg['appearance'], 'light')
+        self.assertNotIn('appearance', cfg['profiles'][0])
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(core, 'CFG_FILE', Path(directory) / 'config.json'):
+                core.save_cfg(cfg)
+                self.assertEqual(core.load_cfg()['appearance'], 'light')
+
     def test_legacy_profile_migrates_without_losing_preferences(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'config.json'
@@ -110,6 +124,31 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.set_shortcut('<Control><Shift>F12')
     win.save_profile()
     second = win.cfg['active_profile']
+    assert len(win.cfg['profiles']) == 2
+    win.ui.search.set_text('two.example')
+    drain(.25)
+    assert win.ui.profile_list.get_first_child().profile_index == 1
+    assert win.ui.profile_list.get_first_child().get_next_sibling() is None
+    win.ui.search.set_text('no-match')
+    drain(.25)
+    assert win.ui.empty_profiles.get_visible()
+    win.ui.search.set_text('')
+    drain(.25)
+    win.ui.show_page('display')
+    assert win.form.get_visible_child_name() == 'display'
+    win.ui.show_page('sharing')
+    assert win.form.get_visible_child_name() == 'sharing'
+    win.ui.toggle_theme()
+    assert win.cfg['appearance'] == 'light'
+    win.form.set_sensitive(False)
+    assert not win.ui.profile_area.get_sensitive()
+    assert not win.ui.compact_profiles.get_sensitive()
+    win.form.set_sensitive(True)
+    win.set_default_size(680, 760)
+    drain(.3)
+    assert win.ui.split.get_collapsed()
+    assert win.ui.compact_profiles.get_visible()
+    win.ui.show_page('connection')
     win.profile.set_selected(0)
     assert win.cfg['active_profile'] == first
     assert win.server.get_text() == 'one.example'
@@ -169,6 +208,19 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     shortcut.key_pressed(None, Gdk.KEY_F11, 0, Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.SHIFT_MASK)
     shortcut.save()
     assert recorded == ['<Shift><Control>F11']
+    # Failed connection restores the whole workspace, including the sidebar.
+    fake_monitors = [dict(id='0', connector='HDMI-1', width=1920, height=1080, x=0, y=0, primary=True)]
+    with patch.object(gui, 'detect_monitors', return_value=fake_monitors), \
+            patch.object(gui, 'NATIVE', Path(sys.argv[1]) / 'core.py'):
+        win.refresh_monitors()
+        win.password.set_text('example password')
+        win.do_connect()
+        drain(.4)
+        assert win.proc is None
+        assert win.form.get_sensitive() and win.ui.profile_area.get_sensitive()
+        assert win.connect_btn.get_label() == 'Conectar ao Windows'
+        assert win.error.get_visible()
+        assert not win.ui.spinner.get_spinning()
     win.delete_profile()
     dialog = next(w for w in Gtk.Window.get_toplevels() if isinstance(w, gui.Adw.MessageDialog))
     dialog.response('delete')
@@ -176,7 +228,7 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     assert win.cfg['active_profile'] == first
     win.close()
     drain()
-print('PASS GTK: profiles, stale credentials, folder navigation/selection/cancel, shortcut recording, delete')
+print('PASS GTK: responsive navigation/search/themes, profiles, stale credentials, folders, shortcuts and delete')
 '''
 
 

@@ -7,7 +7,7 @@ import re
 import tarfile
 
 BASE = Path(__file__).resolve().parent
-TAG = 'v6.0.0-beta.5'
+TAG = 'v6.0.0-beta.6'
 ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
@@ -33,6 +33,17 @@ Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado
 e AJR Bar para controlar sessões Windows no GNOME 46.
 
 ## Mudanças desta versão
+
+- Interface reformulada com identidade própria em grafite e violeta, temas claro
+  e escuro com preferência persistente e conexões salvas com busca na barra lateral.
+- Conexão, tela/teclado e compartilhamento têm áreas separadas. Em janelas menores,
+  a lista de conexões passa para um painel lateral. O botão de conectar e o estado
+  do servidor permanecem visíveis durante a navegação.
+- A apresentação, os diálogos e os estilos foram separados do controlador de
+  perfis e sessões. A seleção de perfil fica bloqueada enquanto uma conexão
+  está em andamento; a verificação do servidor aguarda uma pausa na digitação.
+
+## Recursos preservados
 
 - O botão de pasta abre diretamente o seletor GTK, permitindo navegar pelos
   diretórios locais sem depender do portal de arquivos. Pastas de rede precisam
@@ -87,8 +98,8 @@ ou a floatbar visual nativa do FreeRDP.
 ## Estado da validação
 
 Esta é uma versão de teste. A instalação em um Zorin recém-instalado ainda
-não foi validada. Foram aprovados 50 testes automatizados, incluindo perfis,
-seletor de pastas, gravação do atalho, atualização da integração, preservação
+não foi validada. Foram aprovados 51 testes automatizados, incluindo perfis,
+busca e navegação responsiva, temas, seletor de pastas, gravação do atalho, atualização da integração, preservação
 de configurações e instalação/restauração em diretórios de usuário temporários.
 O teste nativo de teclado passou em Xvfb. Em uma sessão GNOME 46 isolada, a
 atualização real da barra, a restauração de módulos anteriores e a recuperação

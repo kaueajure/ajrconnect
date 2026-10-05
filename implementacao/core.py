@@ -20,8 +20,8 @@ DEFAULT = dict(server='', user='', shares=[], quality=0,
     clipboard=True, remember=False, keyboard_mode='fullscreen',
     fullscreen_shortcut='<Control><Alt>Return',
     remote_alt_tab=True, remote_super=True, remote_alt_f4=True,
-    profiles=[], active_profile='')
-PROFILE_KEYS = tuple(k for k in DEFAULT if k not in ('profiles', 'active_profile'))
+    profiles=[], active_profile='', appearance='dark')
+PROFILE_KEYS = tuple(k for k in DEFAULT if k not in ('profiles', 'active_profile', 'appearance'))
 
 
 def atomic_json(path, data):
@@ -74,6 +74,8 @@ def load_cfg():
         pass
     cfg = normalize_settings(data)
     if isinstance(data, dict):
+        appearance = data.get('appearance', 'dark')
+        cfg['appearance'] = appearance if appearance in ('dark', 'light', 'system') else 'dark'
         seen = set()
         for profile in data.get('profiles', []) if isinstance(data.get('profiles'), list) else []:
             if not isinstance(profile, dict) or not isinstance(profile.get('id'), str) \

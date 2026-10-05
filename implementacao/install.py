@@ -94,8 +94,9 @@ def install_files():
         state['disabled-extensions'] = shell.get_strv('disabled-extensions')
     (BACKUP / 'settings.json').write_text(json.dumps(state, indent=2))
     APP.mkdir(parents=True, exist_ok=True)
-    for name in ('ajr_app.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
+    for name in ('ajr_app.py', 'ui.py', 'dialogs.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
         shutil.copy2(BASE / name, APP / name)
+    shutil.copytree(BASE / 'assets', APP / 'assets', dirs_exist_ok=True)
     # Replacing the inode permits an existing RDP process to finish normally.
     fd, temporary = tempfile.mkstemp(prefix='.ajr-freerdp-', dir=APP)
     os.close(fd)
@@ -118,7 +119,8 @@ def install_files():
     BIN.chmod(0o755)
     DESKTOP.parent.mkdir(parents=True, exist_ok=True)
     DESKTOP.write_text((BASE / 'ajr-connect.desktop.in').read_text().replace(
-        '@AJR_LAUNCHER@', desktop_exec(sys.executable, BIN)))
+        '@AJR_LAUNCHER@', desktop_exec(sys.executable, BIN)).replace(
+        '@AJR_ICON@', str(APP / 'assets/ajr-connect.svg').replace('\\', '\\\\')))
     DESKTOP.chmod(0o644)
     if extension_managed:
         had_bridge = (EXT / 'bridge.json').is_file()

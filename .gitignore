@@ -9,6 +9,10 @@
 /implementacao/*
 !/implementacao/LICENSE
 !/implementacao/ajr_app.py
+!/implementacao/ui.py
+!/implementacao/dialogs.py
+!/implementacao/DESIGN.md
+!/implementacao/assets/
 !/implementacao/core.py
 !/implementacao/integration.py
 !/implementacao/x11.py
@@ -64,6 +68,7 @@
 !/implementacao/tests/test_preferences.py
 !/implementacao/tests/test_integration_update.py
 !/implementacao/tests/check_live_update.py
+!/implementacao/tests/check_desktop_ui.py
 !/implementacao/tests/check_keyboard_policy.py
 !/implementacao/tests/keyboard_policy.c
 
