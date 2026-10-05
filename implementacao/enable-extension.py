@@ -1,22 +1,12 @@
 #!/usr/bin/env python3
-"""Enable v6 at login, allowing time for GNOME to discover its extensions."""
+"""Activate the stable bridge when GNOME becomes available after login."""
 import time
-from gi.repository import Gio, GLib
+from integration import installed_revision, refresh_integration
 
-uuid = 'ajr-connect@ajure.local'
-for attempt in range(10):
-    try:
-        info = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync('org.gnome.Shell', '/org/gnome/Shell',
-            'org.gnome.Shell.Extensions', 'GetExtensionInfo', GLib.Variant('(s)', (uuid,)),
-            None, Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
-        if info.get('version', 0) >= 6:
-            enabled = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync('org.gnome.Shell', '/org/gnome/Shell',
-                'org.gnome.Shell.Extensions', 'EnableExtension', GLib.Variant('(s)', (uuid,)),
-                None, Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
-            if enabled:
-                break
-        elif info:
-            break  # The old cached module must stay disabled until logout.
-    except GLib.Error:
-        pass
-    time.sleep(1)
+revision = installed_revision()
+if revision:
+    for attempt in range(10):
+        status = refresh_integration(revision, timeout=1)
+        if status in ('ready', 'restart-required'):
+            break
+        time.sleep(1)

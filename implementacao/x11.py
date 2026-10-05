@@ -60,13 +60,13 @@ class X11:
     def atom(self, name):
         return self.lib.XInternAtom(self.display, name.encode(), False)
 
-    def property(self, window, name):
+    def property(self, window, name, delete=False):
         actual = C.c_ulong()
         fmt = C.c_int()
         count, remaining = C.c_ulong(), C.c_ulong()
         data = C.POINTER(C.c_ubyte)()
         result = self.lib.XGetWindowProperty(self.display, window, self.atom(name),
-            0, 4096, False, 0, C.byref(actual), C.byref(fmt), C.byref(count),
+            0, 4096, delete, 0, C.byref(actual), C.byref(fmt), C.byref(count),
             C.byref(remaining), C.byref(data))
         if result or not data:
             return None

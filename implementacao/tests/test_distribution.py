@@ -19,7 +19,19 @@ import os, runpy, sys, json, subprocess
 from unittest.mock import patch
 sys.path.insert(0, sys.argv[1])
 import install
+import integration
+integration.refresh_integration = lambda *args, **kwargs: 'unavailable'
+install.refresh_integration = integration.refresh_integration
 home = Path.home()
+if sys.argv[2] == 'hot-update':
+    integration.install_extension(Path(sys.argv[1]) / 'extensao', install.EXT)
+    integration.refresh_integration = lambda *args, **kwargs: 'ready'
+    install.refresh_integration = integration.refresh_integration
+elif sys.argv[2] == 'legacy-update':
+    install.EXT.mkdir(parents=True)
+    (install.EXT / 'extension.js').write_text('// previous classic extension')
+    integration.refresh_integration = lambda *args, **kwargs: 'restart-required'
+    install.refresh_integration = integration.refresh_integration
 cfg = home / '.config/ajr-connect/config.json'
 cfg.parent.mkdir(parents=True)
 original = b'{"server":"rdp.example.test:3389","user":"example","shares":[{"name":"Docs","path":"/example/docs"}]}'
@@ -36,13 +48,17 @@ if sys.argv[2] == 'non-gnome':
     autostart.parent.mkdir(parents=True)
     autostart.write_text('existing autostart')
     install.lookup_settings = lambda Gio, schema: None
-with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GNOME Shell 46.0', '')):
+with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GNOME Shell 46.0', '')) as commands:
     assert install.install_files() == 0
     assert cfg.read_bytes() == original
     assert (home / '.local/bin/ajr-connect').is_file()
     assert '@AJR_LAUNCHER@' not in desktop.read_text()
     assert install.desktop_exec(home / '.local/bin/ajr-connect') in desktop.read_text()
     metadata = json.loads((install.DATA / 'last-install.json').read_text())
+    if sys.argv[2] in ('hot-update', 'legacy-update'):
+        assert not any(call.args[0][:2] == ['gnome-extensions', 'disable'] for call in commands.call_args_list)
+        assert metadata['needs_shell_restart'] == (sys.argv[2] == 'legacy-update')
+        assert metadata['bridge_loader_changed'] == (sys.argv[2] == 'legacy-update')
     if metadata['extension_managed']:
         assert install.desktop_exec(sys.executable, install.APP / 'enable-extension.py') in (
             home / '.config/autostart/ajr-connect-integration.desktop').read_text()
@@ -91,7 +107,7 @@ class DistributionTests(unittest.TestCase):
             install.desktop_exec('/example/invalid\npath')
 
     def test_installer_and_rollback_without_real_settings(self):
-        for state in ('fresh', 'existing', 'non-gnome'):
+        for state in ('fresh', 'existing', 'non-gnome', 'hot-update', 'legacy-update'):
             with self.subTest(state=state), tempfile.TemporaryDirectory() as directory:
                 home = Path(directory) / 'Pessoa AJR $ % " \\'
                 home.mkdir()

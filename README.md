@@ -3,7 +3,9 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.4**. A instalação em um Zorin recém-instalado
+Versão de teste: **6.0.0-beta.5**. Inclui conexões salvas, seleção de pastas,
+atalhos personalizáveis e atualização da AJR Bar na sessão atual.
+A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
 ## Instalação em outras distribuições
@@ -50,7 +52,10 @@ instalá-las pelo APT. Apenas pacotes ausentes são solicitados; as bibliotecas
 FreeRDP/WinPR devem manter a versão 2.11.5. O instalador simula a transação
 antes de executá-la, não permite remoções e não faz downgrade automático.
 Se todas as dependências já estiverem instaladas, não usa sudo.
-Se a AJR Bar for instalada, saia da sessão e entre novamente para carregá-la.
+O aplicativo atualizado pode ser usado após fechar e abrir o AJR Connect e
+reconectar o Windows. Atualizações da AJR Bar são aplicadas na sessão atual.
+Na primeira instalação ou na migração da extensão antiga para a ponte
+recarregável, o instalador pode solicitar um único novo login para ativar a barra.
 
 Para apenas verificar o ambiente:
 
@@ -64,11 +69,57 @@ campos vazios; configurações existentes são preservadas.
 
 ## Controles
 
-- Ctrl+Alt+Enter alterna entre janela e fullscreen no monitor selecionado.
-- Em fullscreen ativo, o teclado é capturado para encaminhar atalhos ao Windows.
-- Em janela, os atalhos globais ficam com o Linux.
+- Ctrl+Alt+Enter é o atalho inicial de tela cheia. Em **Tela e teclado → Atalho
+  de tela cheia → Alterar**, pressione a combinação desejada e salve.
+- Em **Prioridade dos atalhos**, escolha encaminhar atalhos ao Windows somente
+  em tela cheia, também em janela ou manter os atalhos no computador local.
+- Ative ou desative individualmente **Alt+Tab**, **Windows/Super** (sozinha) e
+  **Alt+F4**. Ativado executa no Windows; desativado executa no Linux.
+  Essa combinação de prioridades exige a **AJR Bar atualizada e ativa no GNOME 46**.
+  Super+R e outras combinações com Super seguem a captura geral do teclado.
 - No GNOME 46, a AJR Bar no topo central permite minimizar, sair de fullscreen e desconectar.
 - Os mesmos controles estão disponíveis na janela do aplicativo.
+
+Atalhos que o desktop reserva podem ter prioridade quando a captura está
+desativada. Escolha uma combinação livre para alternar tela cheia em janela.
+Reconecte depois de alterar as opções de teclado.
+
+## Conexões e pastas
+
+Em **Conexão**, use **Nova**, preencha um nome, servidor, usuário e senha e
+clique em **Salvar**. Selecione uma conexão em **Conexões salvas** para recuperar
+seus dados. Cada perfil mantém monitor, pastas e preferências próprios. A conexão
+da configuração antiga é convertida em perfil sem perder essas preferências.
+
+Ative **Lembrar senha** antes de salvar para guardar a senha no chaveiro GNOME.
+As senhas são identificadas por servidor e usuário e não entram no arquivo JSON.
+Perfis que usam o mesmo servidor e usuário compartilham a mesma credencial.
+**Excluir** solicita confirmação e remove a credencial se nenhum outro perfil
+usa esse par de servidor e usuário.
+
+Em **Adicionar pasta**, clique no ícone de pasta, navegue pelos diretórios do
+Linux e escolha **Selecionar pasta**. O seletor GTK abre diretamente, sem
+depender do portal de arquivos. Pastas de rede precisam estar montadas e
+disponíveis como diretórios locais antes de serem compartilhadas.
+
+## Atualizações sem sair da sessão
+
+Execute novamente o mesmo comando de instalação para baixar a versão nova.
+Ele preserva as configurações,
+faz backup e atualiza a barra pelo seu canal D-Bus. Não desativa a extensão a
+cada instalação, não reinicia o GNOME Shell e não encerra as conexões RDP abertas.
+Feche e abra o AJR Connect para carregar a nova interface e reconecte o Windows
+para carregar o novo cliente RDP.
+
+A extensão passa a ter uma parte fixa (`extension.js`) e módulos de integração
+com nomes derivados do conteúdo. Isso permite importar o código novo sem
+reutilizar a versão antiga guardada no cache do GNOME. Erros ao importar a nova
+versão mantêm a barra anterior; erros ao ativá-la tentam restaurar a anterior.
+
+Uma nova entrada na sessão ainda pode ser necessária para a primeira ativação,
+a migração da extensão antiga e alterações excepcionais na parte fixa. Mudanças
+rotineiras no aplicativo e nos módulos da barra não exigem novo login. A
+integração indisponível em outros desktops não impede o uso dos controles da janela.
 
 O cliente preserva o compartilhamento de pastas e usa renderização por software,
 sem ativar `/gfx`, `/gdi:hw` ou a floatbar visual nativa do FreeRDP.
@@ -85,7 +136,14 @@ cd implementacao
 python3 native/build.py
 python3 install.py --check
 python3 -m unittest discover -s tests -p 'test_*.py' -v
+python3 tests/check_keyboard_policy.py
+python3 tests/check_live_update.py
 ```
+
+Os testes de interface e teclado usam Xvfb e não acessam a VM nem o chaveiro
+real. Para instalar a partir dos fontes, execute `python3 install.py`
+após compilar. O instalador informa se a integração foi aplicada na sessão atual
+ou se esta instalação precisa da ativação inicial da ponte.
 
 Para gerar os pacotes localmente, execute `python3 package.py` a partir de
 `implementacao/`. Os arquivos são gerados em `dist/`, fora do controle de versão.

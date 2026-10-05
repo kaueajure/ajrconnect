@@ -6,15 +6,22 @@ import os
 import re
 import subprocess
 import tempfile
+import uuid
 
 APP_DIR = Path(__file__).resolve().parent
 CFG_FILE = Path.home() / '.config/ajr-connect/config.json'
 DATA_DIR = Path.home() / '.local/share/ajr-connect'
 RUNTIME_DIR = Path(os.environ.get('XDG_RUNTIME_DIR', str(Path.home() / '.cache'))) / 'ajr-connect'
 NATIVE = APP_DIR / 'ajr-freerdp'
+if not NATIVE.exists():
+    NATIVE = APP_DIR / 'native/ajr-freerdp'
 DEFAULT = dict(server='', user='', shares=[], quality=0,
     monitor='0', monitor_connector='', fullscreen=False, capture_keyboard=True,
-    clipboard=True, remember=False)
+    clipboard=True, remember=False, keyboard_mode='fullscreen',
+    fullscreen_shortcut='<Control><Alt>Return',
+    remote_alt_tab=True, remote_super=True, remote_alt_f4=True,
+    profiles=[], active_profile='')
+PROFILE_KEYS = tuple(k for k in DEFAULT if k not in ('profiles', 'active_profile'))
 
 
 def atomic_json(path, data):
@@ -31,30 +38,82 @@ def atomic_json(path, data):
             os.unlink(tmp)
 
 
-def load_cfg():
+def normalize_settings(data):
     cfg = copy.deepcopy(DEFAULT)
-    try:
-        data = json.loads(CFG_FILE.read_text())
-        if isinstance(data, dict):
-            cfg.update({k: v for k, v in data.items() if k in DEFAULT})
-    except (OSError, ValueError):
-        pass
+    if isinstance(data, dict):
+        cfg.update({k: v for k, v in data.items() if k in PROFILE_KEYS})
     for key in ('server', 'user', 'monitor', 'monitor_connector'):
         cfg[key] = str(cfg[key]) if isinstance(cfg[key], (str, int)) else DEFAULT[key]
-    for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember'):
+    for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember',
+                'remote_alt_tab', 'remote_super', 'remote_alt_f4'):
         cfg[key] = cfg[key] if isinstance(cfg[key], bool) else DEFAULT[key]
+    if not isinstance(data, dict) or 'keyboard_mode' not in data:
+        cfg['keyboard_mode'] = 'fullscreen' if cfg['capture_keyboard'] else 'local'
+    if cfg['keyboard_mode'] not in ('fullscreen', 'always', 'local'):
+        cfg['keyboard_mode'] = 'fullscreen'
+    cfg['capture_keyboard'] = cfg['keyboard_mode'] != 'local'
+    shortcut = cfg['fullscreen_shortcut']
+    if not isinstance(shortcut, str) or not shortcut or len(shortcut) > 128:
+        cfg['fullscreen_shortcut'] = DEFAULT['fullscreen_shortcut']
     try:
         cfg['quality'] = max(0, min(2, int(cfg['quality'])))
     except (ValueError, TypeError):
         cfg['quality'] = 0
-    cfg['shares'] = [s for s in cfg.get('shares', []) if isinstance(s, dict)
-                     and isinstance(s.get('name'), str) and isinstance(s.get('path'), str)] \
-        if isinstance(cfg.get('shares'), list) else copy.deepcopy(DEFAULT['shares'])
+    cfg['shares'] = [dict(name=s['name'], path=s['path']) for s in cfg.get('shares', [])
+                     if isinstance(s, dict) and isinstance(s.get('name'), str)
+                     and isinstance(s.get('path'), str)] \
+        if isinstance(cfg.get('shares'), list) else []
+    return cfg
+
+
+def load_cfg():
+    data = {}
+    try:
+        data = json.loads(CFG_FILE.read_text())
+    except (OSError, ValueError):
+        pass
+    cfg = normalize_settings(data)
+    if isinstance(data, dict):
+        seen = set()
+        for profile in data.get('profiles', []) if isinstance(data.get('profiles'), list) else []:
+            if not isinstance(profile, dict) or not isinstance(profile.get('id'), str) \
+                    or not profile['id'] or profile['id'] in seen:
+                continue
+            settings = normalize_settings(profile)
+            cfg['profiles'].append(dict(id=profile['id'],
+                name=profile.get('name') if isinstance(profile.get('name'), str) else 'Conexão',
+                **{k: settings[k] for k in PROFILE_KEYS}))
+            seen.add(profile['id'])
+        active = data.get('active_profile')
+        cfg['active_profile'] = active if isinstance(active, str) and active in seen else ''
+    if not cfg['profiles'] and (cfg['server'] or cfg['user']):
+        store_profile(cfg, cfg['server'] or 'Minha conexão')
     return cfg
 
 
 def save_cfg(cfg):
-    atomic_json(CFG_FILE, {k: cfg[k] for k in DEFAULT})
+    # Explicit allowlist: credentials never enter the JSON, even nested in profiles.
+    data = {k: copy.deepcopy(cfg.get(k, v)) for k, v in DEFAULT.items()}
+    data['profiles'] = [{k: copy.deepcopy(p[k]) for k in ('id', 'name', *PROFILE_KEYS)
+                         if k in p} for p in data['profiles']]
+    atomic_json(CFG_FILE, data)
+
+
+def store_profile(cfg, name):
+    profile = next((p for p in cfg['profiles'] if p['id'] == cfg['active_profile']), None)
+    if profile is None:
+        profile = dict(id=uuid.uuid4().hex)
+        cfg['profiles'].append(profile)
+        cfg['active_profile'] = profile['id']
+    profile.update({k: copy.deepcopy(cfg[k]) for k in PROFILE_KEYS})
+    profile['name'] = name.strip() or cfg['server'] or 'Conexão'
+    return profile
+
+
+def select_profile(cfg, profile_id):
+    profile = next(p for p in cfg['profiles'] if p['id'] == profile_id)
+    cfg.update({k: copy.deepcopy(profile[k]) for k in PROFILE_KEYS})
+    cfg['active_profile'] = profile_id
 
 
 def detect_monitors():
@@ -108,7 +167,8 @@ def build_command(cfg, monitor, native=NATIVE):
            f'/smart-sizing:{w}x{h}', f'/window-position:{x}x{y}',
            '/network:broadband', '/gdi:sw',
            '/bpp:24' if cfg['quality'] == 2 else '/bpp:32',
-           '+grab-keyboard' if cfg['capture_keyboard'] else '-grab-keyboard',
+           '+grab-keyboard' if cfg.get('keyboard_mode', 'fullscreen') != 'local'
+                and cfg['capture_keyboard'] else '-grab-keyboard',
            '+clipboard' if cfg['clipboard'] else '-clipboard']
     if cfg['quality'] == 1:
         cmd.append('+window-drag')

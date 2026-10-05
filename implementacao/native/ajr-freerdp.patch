@@ -1,10 +1,16 @@
 --- a/client/X11/xfreerdp.h
 +++ b/client/X11/xfreerdp.h
-@@ -124,6 +124,11 @@
+@@ -124,6 +124,17 @@
  {
  	rdpContext context;
  	DEFINE_RDP_CLIENT_COMMON();
-+    BOOL ajr_pending, ajr_grabbed, ajr_return_down;
++    BOOL ajr_pending, ajr_grabbed;
++    BOOL ajr_capture_window, ajr_local_pending;
++    KeySym ajr_fullscreen_key;
++    unsigned int ajr_fullscreen_mods, ajr_remote_keys;
++    BYTE ajr_shortcut_down, ajr_super_key;
++    BOOL ajr_swallowed[256];
++    UINT64 ajr_local_deadline;
 +    UINT32 ajr_token;
 +    UINT64 ajr_deadline;
 +    unsigned long ajr_state[8];
@@ -91,128 +97,65 @@
  }
  
  BOOL xf_toggle_control(xfContext* xfc)
-@@ -1680,7 +1667,7 @@
+@@ -1680,7 +1667,8 @@
  		if (xfc->window)
  			xf_floatbar_hide_and_show(xfc->window->floatbar);
  
 -		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
-+		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, xfc->ajr_pending ? 100 : INFINITE);
++		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE,
++            (xfc->ajr_pending || xfc->ajr_local_pending) ? 100 : INFINITE);
  
  		if (waitStatus == WAIT_FAILED)
  			break;
 --- a/client/X11/xf_event.c
 +++ b/client/X11/xf_event.c
-@@ -38,6 +38,7 @@
- #include "xf_graphics.h"
- 
- #include "xf_event.h"
+@@ -40,0 +41 @@
 +#include "ajr.h"
- #include "xf_input.h"
- 
- #define TAG CLIENT_TAG("x11")
-@@ -507,6 +508,17 @@
- 	char str[256];
- 	WINPR_UNUSED(app);
- 	XLookupString((XKeyEvent*)event, str, sizeof(str), &keysym, NULL);
-+    /* Event modifiers survive the asynchronous remote focus synchronization. */
-+    if (!xfc->remote_app && xfc->fullscreen_toggle && keysym == XK_Return &&
-+        (((event->state & ControlMask) && (event->state & Mod1Mask)) || xfc->ajr_return_down))
-+    {
-+        if (!xfc->ajr_return_down)
-+        {
-+            xfc->ajr_return_down = TRUE;
-+            xf_toggle_fullscreen(xfc);
-+        }
-+        return TRUE;
-+    }
- 	xf_keyboard_key_press(xfc, event->keycode, keysym);
- 	return TRUE;
- }
-@@ -546,18 +558,19 @@
- 
- static BOOL xf_event_FocusIn(xfContext* xfc, const XFocusInEvent* event, BOOL app)
- {
+@@ -509,0 +511 @@
++    if (xf_ajr_key(xfc, event, keysym, TRUE)) return TRUE;
+@@ -519,0 +522 @@
++	if (xf_ajr_key(xfc, event, keysym, FALSE)) return TRUE;
+@@ -549 +552,3 @@
 -	if (event->mode == NotifyGrab)
 +	/* XWayland emits both edges when a keyboard grab changes. These are
 +     * not application focus changes; reacting would ungrab/regrab forever. */
 +	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
- 		return TRUE;
- 
- 	xfc->focused = TRUE;
- 
+@@ -554 +559 @@
 -	if (xfc->mouse_active && !app)
 +	if (!app)
- 	{
- 		if (!xfc->window)
- 			return FALSE;
- 
+@@ -559,2 +564 @@
 -		XGrabKeyboard(xfc->display, xfc->window->handle, TRUE, GrabModeAsync, GrabModeAsync,
 -		              CurrentTime);
 +		xf_ajr_update_keyboard(xfc);
- 	}
- 
- 	/* Release all keys, should already be done at FocusOut but might be missed
-@@ -585,13 +598,14 @@
- 
- static BOOL xf_event_FocusOut(xfContext* xfc, const XFocusOutEvent* event, BOOL app)
- {
+@@ -588 +592 @@
 -	if (event->mode == NotifyUngrab)
 +	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
- 		return TRUE;
- 
- 	xfc->focused = FALSE;
+@@ -590,0 +595,3 @@
++    xfc->ajr_shortcut_down = 0;
++    memset(xfc->ajr_swallowed, 0, sizeof(xfc->ajr_swallowed));
++
+@@ -591,0 +599 @@
 +    xf_ajr_release_keyboard(xfc);
- 
- 	if (event->mode == NotifyWhileGrabbed)
+@@ -594 +602 @@
 -		XUngrabKeyboard(xfc->display, CurrentTime);
 +		xf_ajr_release_keyboard(xfc);
- 
- 	xf_keyboard_release_all_keypress(xfc);
- 
-@@ -618,6 +632,10 @@
- 
- static BOOL xf_event_ClientMessage(xfContext* xfc, const XClientMessageEvent* event, BOOL app)
- {
+@@ -620,0 +629,4 @@
 +    if (!app && event->message_type == XInternAtom(xfc->display, "_AJR_CONTROL_V1", False))
 +    {
 +        return xf_ajr_control(xfc, event);
 +    }
- 	if ((event->message_type == xfc->WM_PROTOCOLS) &&
- 	    ((Atom)event->data.l[0] == xfc->WM_DELETE_WINDOW))
- 	{
-@@ -656,8 +674,7 @@
- 			XSetInputFocus(xfc->display, xfc->window->handle, RevertToPointerRoot, CurrentTime);
- 
- 		if (xfc->focused)
+@@ -659,2 +671 @@
 -			XGrabKeyboard(xfc->display, xfc->window->handle, TRUE, GrabModeAsync, GrabModeAsync,
 -			              CurrentTime);
 +			xf_ajr_update_keyboard(xfc);
- 	}
- 	else
- 	{
-@@ -675,7 +692,9 @@
- 	if (!app)
- 	{
- 		xfc->mouse_active = FALSE;
+@@ -678 +689,3 @@
 -		XUngrabKeyboard(xfc->display, CurrentTime);
 +        /* Fullscreen owns the keyboard even when the pointer reaches the bar
 +         * or another monitor. Only a state/focus change releases the grab. */
 +        xf_ajr_update_keyboard(xfc);
- 	}
- 	else
- 	{
-@@ -703,6 +722,7 @@
- 		if (!xfc->window)
- 			return FALSE;
- 
+@@ -705,0 +719 @@
 +        if (event->width <= 0 || event->height <= 0) return TRUE;
- 		if (xfc->window->left != event->x)
- 			xfc->window->left = event->x;
- 
-@@ -732,6 +752,13 @@
- #endif
- 		}
- 
+@@ -734,0 +749,7 @@
 +        if (!xfc->fullscreen && !xfc->ajr_pending) {
 +            Window child; int x, y;
 +            XTranslateCoordinates(xfc->display, xfc->window->handle,
@@ -220,50 +163,23 @@
 +            xfc->savedPosX = x; xfc->savedPosY = y;
 +            xfc->savedWidth = event->width; xfc->savedHeight = event->height;
 +        }
- 		if (settings->DynamicResolutionUpdate)
- 		{
- 			int alignedWidth, alignedHeight;
-@@ -782,8 +809,10 @@
- {
- 	xfAppWindow* appWindow;
- 
+@@ -785 +806,2 @@
 -	if (!app)
 +	if (!app) {
 +        xfc->ajr_grabbed = FALSE;
- 		gdi_send_suppress_output(xfc->context.gdi, FALSE);
+@@ -786,0 +809 @@
 +    }
- 	else
- 	{
- 		appWindow = xf_AppWindowFromX11Window(xfc, event->window);
-@@ -811,6 +840,7 @@
- 	WINPR_ASSERT(event);
- 
- 	xf_keyboard_release_all_keypress(xfc);
+@@ -813,0 +837 @@
 +    xf_ajr_release_keyboard(xfc);
- 
- 	if (!app)
- 		gdi_send_suppress_output(xfc->context.gdi, TRUE);
-@@ -831,6 +861,7 @@
- {
- 	WINPR_ASSERT(xfc);
- 	WINPR_ASSERT(event);
+@@ -833,0 +858 @@
 +    if (!app && event->atom == xfc->_NET_WM_STATE) xf_ajr_sync(xfc);
- 
- 	/*
- 	 * This section handles sending the appropriate commands to the rail server
-@@ -1050,6 +1081,12 @@
- 	xfAppWindow* appWindow;
- 	xfContext* xfc = (xfContext*)instance->context;
- 	rdpSettings* settings = xfc->context.settings;
+@@ -1052,0 +1078,6 @@
 +    if (getenv("AJR_DIAGNOSTIC") && (event->type == FocusIn || event->type == FocusOut ||
 +        event->type == MapNotify || event->type == UnmapNotify || event->type == KeyPress || event->type == KeyRelease))
 +        fprintf(stderr, "AJR_DIAG event=%d focusMode=%d focusDetail=%d focused=%d grabbed=%d fullscreen=%d\n",
 +                event->type, (event->type == FocusIn || event->type == FocusOut) ? event->xfocus.mode : -1,
 +                (event->type == FocusIn || event->type == FocusOut) ? event->xfocus.detail : -1,
 +                xfc->focused, xfc->ajr_grabbed, xfc->fullscreen);
- 
- 	if (xfc->remote_app)
- 	{
 --- a/client/X11/xf_keyboard.c
 +++ b/client/X11/xf_keyboard.c
 @@ -39,6 +39,7 @@
@@ -274,23 +190,8 @@
  
  #include <freerdp/log.h>
  #define TAG CLIENT_TAG("x11")
-@@ -158,6 +159,11 @@
- 	if (keycode < 8)
- 		return;
- 
-+    if (keysym == XK_Return && xfc->ajr_return_down) {
-+        xfc->ajr_return_down = FALSE;
-+        xfc->KeyboardState[keycode] = FALSE;
-+        return;
-+    }
- 	xfc->KeyboardState[keycode] = FALSE;
- 	xf_keyboard_handle_special_keys_release(xfc, keysym);
- 	xf_keyboard_send_key(xfc, FALSE, keycode);
-@@ -471,42 +477,12 @@
- BOOL xf_keyboard_handle_special_keys(xfContext* xfc, KeySym keysym)
- {
+@@ -473,40 +474,9 @@
  	XF_MODIFIER_KEYS mod = { 0 };
-+    if (keysym == XK_Return && xfc->ajr_return_down) return TRUE;
  	xk_keyboard_get_modifier_keys(xfc, &mod);
  
 -	// remember state of RightCtrl to ungrab keyboard if next action is release of RightCtrl
@@ -330,7 +231,7 @@
  	}
  
  	if ((keysym == XK_c) || (keysym == XK_C))
-@@ -604,31 +580,9 @@
+@@ -604,31 +574,9 @@
  
  void xf_keyboard_handle_special_keys_release(xfContext* xfc, KeySym keysym)
  {

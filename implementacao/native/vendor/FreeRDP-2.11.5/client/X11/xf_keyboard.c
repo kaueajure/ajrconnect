@@ -159,11 +159,6 @@ void xf_keyboard_key_release(xfContext* xfc, BYTE keycode, KeySym keysym)
 	if (keycode < 8)
 		return;
 
-    if (keysym == XK_Return && xfc->ajr_return_down) {
-        xfc->ajr_return_down = FALSE;
-        xfc->KeyboardState[keycode] = FALSE;
-        return;
-    }
 	xfc->KeyboardState[keycode] = FALSE;
 	xf_keyboard_handle_special_keys_release(xfc, keysym);
 	xf_keyboard_send_key(xfc, FALSE, keycode);
@@ -477,7 +472,6 @@ static int xk_keyboard_get_modifier_keys(xfContext* xfc, XF_MODIFIER_KEYS* mod)
 BOOL xf_keyboard_handle_special_keys(xfContext* xfc, KeySym keysym)
 {
 	XF_MODIFIER_KEYS mod = { 0 };
-    if (keysym == XK_Return && xfc->ajr_return_down) return TRUE;
 	xk_keyboard_get_modifier_keys(xfc, &mod);
 
 	if (!xf_keyboard_execute_action_script(xfc, &mod, keysym))

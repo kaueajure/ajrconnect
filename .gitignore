@@ -10,6 +10,7 @@
 !/implementacao/LICENSE
 !/implementacao/ajr_app.py
 !/implementacao/core.py
+!/implementacao/integration.py
 !/implementacao/x11.py
 !/implementacao/ajr-connect
 !/implementacao/ajr-control
@@ -60,6 +61,11 @@
 !/implementacao/tests/test_distribution.py
 !/implementacao/tests/test_bootstrap.py
 !/implementacao/tests/test_dependencies.py
+!/implementacao/tests/test_preferences.py
+!/implementacao/tests/test_integration_update.py
+!/implementacao/tests/check_live_update.py
+!/implementacao/tests/check_keyboard_policy.py
+!/implementacao/tests/keyboard_policy.c
 
 # Ignore generated or personal files even inside allowed source directories.
 __pycache__/

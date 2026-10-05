@@ -1,216 +1,115 @@
-import St from 'gi://St';
-import Clutter from 'gi://Clutter';
-import GLib from 'gi://GLib';
 import Gio from 'gi://Gio';
-import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import GLib from 'gi://GLib';
+import St from 'gi://St';
 import {Extension} from 'resource:///org/gnome/shell/extensions/extension.js';
 
-// The Shell presents controls; the RDP client owns every fullscreen transition.
-export default class AJRConnectIntegration extends Extension {
+// Keep this loader stable. New behavior lives in modules with immutable URIs,
+// so the Shell's ES-module cache can retain old modules without hiding updates.
+const BRIDGE_INTERFACE = `<node>
+<interface name="com.ajure.AJRConnect.Bridge">
+  <method name="GetRevision"><arg type="s" direction="out" name="revision"/></method>
+  <method name="Reload"><arg type="s" direction="out" name="revision"/></method>
+</interface></node>`;
+
+export default class AJRConnectBridge extends Extension {
     enable() {
-        this._sources = new Set();
-        this._signals = [];
-        this._windows = new Map();
-        this._target = null;
-        this._hideSource = 0;
-        this._bar = new St.BoxLayout({style_class: 'ajr-bar', reactive: true,
-            track_hover: true, visible: false});
-        this._brand = new St.Label({text: 'AJR Connect', style_class: 'ajr-brand',
-            y_align: Clutter.ActorAlign.CENTER});
-        this._bar.add_child(this._brand);
-        this._button('window-minimize-symbolic', 'Minimizar', 'minimize');
-        this._button('view-restore-symbolic', 'Sair de tela cheia', 'restore');
-        this._button('window-close-symbolic', 'Desconectar', 'disconnect', true);
-        this._hotZone = new St.Widget({reactive: true, track_hover: true,
-            style_class: 'ajr-hot-zone', visible: false});
-        // trackFullscreen=false deliberately keeps the AJR controls above fullscreen.
-        for (const actor of [this._bar, this._hotZone]) {
-            Main.layoutManager.addTopChrome(actor, {
-                affectsStruts: false, trackFullscreen: false, affectsInputRegion: true,
-            });
-            this._connect(actor, 'enter-event', () => {
-                this._show();
-                return Clutter.EVENT_PROPAGATE;
-            });
-            this._connect(actor, 'leave-event', () => {
-                this._scheduleHide();
-                return Clutter.EVENT_PROPAGATE;
-            });
-        }
-        this._connect(global.display, 'window-created', (_display, win) => this._watch(win));
-        this._connect(global.display, 'notify::focus-window', () => this._sync());
-        this._connect(Main.layoutManager, 'monitors-changed', () => this._sync());
-        this._connect(Main.overview, 'showing', () => this._sync());
-        this._connect(Main.overview, 'hidden', () => this._sync());
-        this._connect(Main.sessionMode, 'updated', () => this._sync());
-        for (const actor of global.get_window_actors()) this._watch(actor.meta_window);
-        this._sync();
-    }
-
-    _connect(object, signal, callback, owner = null) {
-        const id = object.connect(signal, callback);
-        this._signals.push({object, id, owner});
-    }
-
-    _later(milliseconds, callback) {
-        const id = GLib.timeout_add(GLib.PRIORITY_DEFAULT, milliseconds, () => {
-            this._sources.delete(id);
-            callback();
-            return GLib.SOURCE_REMOVE;
+        this._enabled = true;
+        this._generation = (this._generation ?? 0) + 1;
+        this._revision = '';
+        this._runtime = null;
+        this._stylesheet = null;
+        this._themeContext = St.ThemeContext.get_for_stage(global.stage);
+        this._theme = this._themeContext.get_theme();
+        this._themeSignal = this._themeContext.connect('changed', () => {
+            const theme = this._themeContext.get_theme();
+            if (theme === this._theme) return;
+            this._theme = theme;
+            if (this._stylesheet) theme.load_stylesheet(this._stylesheet);
         });
-        this._sources.add(id);
-        return id;
+        this._bridge = Gio.DBusExportedObject.wrapJSObject(BRIDGE_INTERFACE, this);
+        this._bridge.export(Gio.DBus.session, '/com/ajure/AJRConnect/Bridge');
+        this._reload().catch(error => console.error(`AJR Connect: ${error}`));
     }
 
-    _cancel(id) {
-        if (id && this._sources.delete(id)) GLib.source_remove(id);
+    GetRevision() {
+        return this._revision;
     }
 
-    _record(win) {
-        if (win.get_wm_class() !== 'AJRConnect' || win.get_title() !== 'AJR Connect VM')
-            return null;
-        const pid = win.get_pid();
-        const path = GLib.build_filenamev([GLib.get_user_runtime_dir(),
-            'ajr-connect', `session-${pid}.json`]);
+    ReloadAsync(_args, invocation) {
+        this._reload().then(revision => {
+            invocation.return_value(new GLib.Variant('(s)', [revision]));
+        }).catch(error => {
+            invocation.return_dbus_error('com.ajure.AJRConnect.ReloadFailed', error.message);
+        });
+    }
+
+    async _reload() {
+        const generation = ++this._generation;
+        const [ok, bytes] = this.dir.get_child('bridge.json').load_contents(null);
+        if (!ok) throw new Error('Manifesto da integração indisponível.');
+        const manifest = JSON.parse(new TextDecoder().decode(bytes));
+        if (manifest.protocol !== 1 || !/^[a-f0-9]{64}$/.test(manifest.revision) ||
+            !/^integration-[a-f0-9]{64}\.js$/.test(manifest.module) ||
+            !/^style-[a-f0-9]{64}\.css$/.test(manifest.stylesheet))
+            throw new Error('Manifesto da integração inválido.');
+        if (this._runtime && manifest.revision === this._revision)
+            return this._revision;
+
+        // Import before touching the working runtime. Syntax/import errors leave
+        // the current bar and shortcuts available.
+        const module = await import(this.dir.get_child(manifest.module).get_uri());
+        if (!this._enabled || generation !== this._generation)
+            return this._revision;
+        const candidate = new module.default();
+        const stylesheet = this.dir.get_child(manifest.stylesheet);
+        const theme = St.ThemeContext.get_for_stage(global.stage).get_theme();
+        const previous = this._runtime;
+        const previousStyle = this._stylesheet;
+        const previousRevision = this._revision;
+        previous?.disable();
+        this._runtime = null;
+        if (previousStyle) theme.unload_stylesheet(previousStyle);
+        this._stylesheet = null;
         try {
-            const [ok, bytes] = GLib.file_get_contents(path);
-            if (!ok) return null;
-            const record = JSON.parse(new TextDecoder().decode(bytes));
-            return record.pid === pid && /^[a-f0-9]{8}$/.test(record.token) ? record : null;
-        } catch (_) {
-            return null;
-        }
-    }
-
-    _watch(win) {
-        if (!win || this._windows.has(win)) return;
-        this._windows.set(win, null);
-        const update = () => {
-            this._windows.set(win, this._record(win));
-            this._sync();
-        };
-        for (const signal of ['notify::title', 'notify::wm-class', 'notify::fullscreen',
-            'notify::minimized', 'position-changed', 'size-changed'])
-            this._connect(win, signal, update, win);
-        this._connect(win, 'unmanaged', () => {
-            this._windows.delete(win);
-            this._disconnectOwner(win);
-            this._sync();
-        }, win);
-        update();
-        // Only startup gets a bounded retry; stable sessions are driven by signals.
-        this._later(500, () => { if (this._windows.has(win)) update(); });
-        this._later(1800, () => { if (this._windows.has(win)) update(); });
-    }
-
-    _disconnectOwner(owner) {
-        this._signals = this._signals.filter(entry => {
-            if (entry.owner !== owner) return true;
-            entry.object.disconnect(entry.id);
-            return false;
-        });
-    }
-
-    _button(icon, label, command, danger = false) {
-        const button = new St.Button({style_class: `ajr-button${danger ? ' ajr-danger' : ''}`,
-            reactive: true, can_focus: true, track_hover: true, accessible_name: label});
-        button.set_child(new St.Icon({icon_name: icon, icon_size: 18}));
-        // Visible labels avoid relying on the meaning of icons alone.
-        const contents = new St.BoxLayout({style_class: 'ajr-button-content'});
-        contents.add_child(new St.Icon({icon_name: icon, icon_size: 16}));
-        contents.add_child(new St.Label({text: label, y_align: Clutter.ActorAlign.CENTER}));
-        button.set_child(contents);
-        this._connect(button, 'clicked', () => this._command(command));
-        this._bar.add_child(button);
-    }
-
-    _usable() {
-        const win = global.display.focus_window;
-        return win && this._windows.get(win) && win.is_fullscreen() && !win.minimized &&
-            win.showing_on_its_workspace() && !Main.overview.visible &&
-            !Main.sessionMode.isLocked ? win : null;
-    }
-
-    _sync() {
-        const win = this._usable();
-        if (win !== this._target) this._hide();
-        this._target = win;
-        if (!win) {
-            this._hotZone.hide();
-            this._hide();
-            return;
-        }
-        const monitor = Main.layoutManager.monitors[win.get_monitor()];
-        if (!monitor) {
-            this._hotZone.hide();
-            this._hide();
-            return;
-        }
-        const width = Math.min(560, monitor.width - 32);
-        this._hotZone.set_position(Math.round(monitor.x + (monitor.width - width) / 2), monitor.y);
-        this._hotZone.set_size(width, 8);
-        this._hotZone.show();
-        this._bar.set_position(Math.round(monitor.x + (monitor.width - width) / 2), monitor.y + 4);
-        this._bar.set_width(width);
-        this._brand.set_text('AJR Connect');
-    }
-
-    _show() {
-        if (!this._usable()) return;
-        this._cancel(this._hideSource);
-        this._hideSource = 0;
-        this._bar.show();
-    }
-
-    _hide() {
-        this._cancel(this._hideSource);
-        this._hideSource = 0;
-        this._bar?.hide();
-    }
-
-    _scheduleHide() {
-        this._cancel(this._hideSource);
-        this._hideSource = this._later(600, () => {
-            this._hideSource = 0;
-            if (!this._bar.hover && !this._hotZone.hover) this._hide();
-        });
-    }
-
-    _command(command) {
-        const win = this._target;
-        const record = win ? this._windows.get(win) : null;
-        if (!record) return;
-        const helper = GLib.build_filenamev([GLib.get_home_dir(), '.local', 'share',
-            'ajr-connect', 'app', 'ajr-control']);
-        try {
-            const process = Gio.Subprocess.new([helper, String(record.pid), command],
-                Gio.SubprocessFlags.STDERR_PIPE);
-            process.communicate_utf8_async(null, null, (_proc, result) => {
-                try {
-                    const [, , error] = process.communicate_utf8_finish(result);
-                    if (!process.get_successful())
-                        Main.notify('AJR Connect', error.trim() || 'Não foi possível controlar a sessão.');
-                } catch (error) {
-                    console.error(`AJR Connect: ${error}`);
-                }
-            });
+            theme.load_stylesheet(stylesheet);
+            candidate.enable();
+            this._runtime = candidate;
+            this._stylesheet = stylesheet;
+            this._revision = manifest.revision;
         } catch (error) {
-            Main.notify('AJR Connect', `Não foi possível executar o controle: ${error.message}`);
+            try { candidate.disable(); } catch (cleanupError) { console.error(cleanupError); }
+            theme.unload_stylesheet(stylesheet);
+            this._revision = '';
+            if (previous) {
+                try {
+                    if (previousStyle) theme.load_stylesheet(previousStyle);
+                    previous.enable();
+                    this._runtime = previous;
+                    this._stylesheet = previousStyle;
+                    this._revision = previousRevision;
+                } catch (restoreError) {
+                    console.error(`AJR Connect: ${restoreError}`);
+                }
+            }
+            throw error;
         }
-        this._hide();
+        return this._revision;
     }
 
     disable() {
-        for (const id of this._sources) GLib.source_remove(id);
-        this._sources.clear();
-        for (const {object, id} of this._signals) object.disconnect(id);
-        this._signals = [];
-        this._windows.clear();
-        this._target = null;
-        for (const actor of [this._bar, this._hotZone]) {
-            Main.layoutManager.removeChrome(actor);
-            actor.destroy();
-        }
-        this._bar = this._hotZone = null;
+        this._enabled = false;
+        this._generation++;
+        this._bridge?.unexport();
+        this._bridge = null;
+        if (this._themeSignal) this._themeContext.disconnect(this._themeSignal);
+        this._themeSignal = 0;
+        this._runtime?.disable();
+        this._runtime = null;
+        if (this._stylesheet)
+            St.ThemeContext.get_for_stage(global.stage).get_theme().unload_stylesheet(this._stylesheet);
+        this._stylesheet = null;
+        this._themeContext = null;
+        this._theme = null;
+        this._revision = '';
     }
 }

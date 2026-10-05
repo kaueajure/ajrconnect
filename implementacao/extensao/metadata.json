@@ -1,7 +1,7 @@
 {
   "uuid": "ajr-connect@ajure.local",
   "name": "AJR Connect Integration",
-  "description": "Controles da sessão AJR Connect no topo da tela.",
+  "description": "Controles da sessão e prioridade dos atalhos locais no AJR Connect.",
   "shell-version": ["46"],
-  "version": 6
+  "version": 8
 }

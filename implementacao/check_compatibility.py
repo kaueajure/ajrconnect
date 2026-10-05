@@ -10,10 +10,10 @@ import subprocess
 import sys
 
 BASE = Path(__file__).resolve().parent
-FILES = ('ajr_app.py', 'core.py', 'x11.py', 'ajr-control', 'ajr-connect',
+FILES = ('ajr_app.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
          'dependencies.py',
          'ajr-connect.desktop.in',
-         'enable-extension.py', 'extensao/extension.js', 'extensao/stylesheet.css',
+         'enable-extension.py', 'extensao/extension.js', 'extensao/integration.js', 'extensao/stylesheet.css',
          'extensao/metadata.json', 'native/ajr-freerdp')
 
 

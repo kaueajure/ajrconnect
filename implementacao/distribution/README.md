@@ -1,6 +1,6 @@
 # AJR Connect 6
 
-Versão de teste: **6.0.0-beta.4**.
+Versão de teste: **6.0.0-beta.5**.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
@@ -50,15 +50,38 @@ Um aviso sobre repositório sem suporte a `i386` não significa que este
 computador seja incompatível. O instalador preserva o diagnóstico do APT
 e interrompe a instalação sem alterar as fontes ou ignorar assinaturas.
 
-Se a AJR Bar for instalada, saia da sessão e entre novamente para carregá-la.
+O aplicativo atualizado pode ser usado após fechar e abrir o AJR Connect e
+reconectar o Windows. Atualizações da barra são aplicadas na sessão atual.
+Na primeira instalação ou na migração da extensão antiga, um único novo login
+pode ser necessário para ativar a ponte recarregável. O instalador informa esse caso.
 Abra AJR Connect pelo menu de aplicativos. Informe servidor, usuário, senha,
 monitor e, se desejar, pastas compartilhadas. As novas instalações começam
 sem servidor, usuário ou pastas configurados.
 
-Em janela, os atalhos globais ficam com o Linux. Em fullscreen ativo, o
-cliente captura o teclado para encaminhar os atalhos ao Windows.
-Ctrl+Alt+Enter alterna fullscreen no monitor selecionado. Passe o mouse no
-topo central para minimizar, sair de fullscreen ou desconectar pela AJR Bar.
+Em **Conexão**, use **Nova** e **Salvar** para cadastrar vários servidores e
+usuários. Cada perfil salva suas pastas, monitor e preferências. Ative
+**Lembrar senha** para salvar também a senha no chaveiro, identificada pelo
+servidor e usuário. A configuração anterior é preservada e convertida em perfil.
+Selecione um perfil em **Conexões salvas**; use **Excluir** para removê-lo.
+Perfis do mesmo servidor e usuário compartilham a credencial no chaveiro.
+
+O botão de pasta abre um seletor GTK para navegar pelos diretórios locais.
+Pastas de rede precisam estar montadas no Linux antes do compartilhamento.
+
+Ctrl+Alt+Enter é o atalho inicial de tela cheia. Em **Tela e teclado**, clique
+em **Alterar** no atalho, pressione a combinação desejada e salve.
+Em **Prioridade dos atalhos**, escolha encaminhar teclas ao Windows somente
+em tela cheia, também em janela ou manter atalhos no computador local.
+Os interruptores de **Alt+Tab**, **Windows/Super** (sozinha) e **Alt+F4**
+definem o destino individual: ativado para Windows, desativado para Linux.
+Prioridades individuais exigem AJR Bar atualizada e ativa no GNOME 46; sem essa integração,
+use todos no Windows ou mantenha os atalhos no computador local.
+Super+R e outras combinações com Super seguem a captura geral. Atalhos
+reservados pelo desktop podem ter prioridade quando a captura está desativada.
+Reconecte depois de mudar as preferências de teclado.
+
+Passe o mouse no topo central para minimizar, sair de fullscreen ou
+desconectar pela AJR Bar.
 Reconecte depois de alterar resolução ou escala dos monitores.
 
 O aplicativo é instalado em `~/.local/share/ajr-connect/app`, o launcher em
@@ -69,6 +92,12 @@ ficam no chaveiro GNOME. A instalação preserva configurações existentes e
 cria um backup dos componentes substituídos e das configurações GNOME afetadas.
 Remove somente o atalho GNOME Ctrl+Alt+Enter que conflita com o cliente.
 
+Para atualizar, desconecte a sessão Windows, feche o aplicativo e execute
+novamente o instalador do pacote novo. Não precisa desinstalar. A barra usa uma
+ponte fixa e módulos recarregáveis, permitindo atualizar seu funcionamento sem
+reiniciar o desktop. Alterações excepcionais na ponte fixa ainda podem exigir
+uma nova entrada na sessão. Atualizações não encerram sessões RDP abertas.
+
 ## Restaurar
 
 No diretório extraído do pacote:
@@ -77,7 +106,9 @@ No diretório extraído do pacote:
 python3 rollback.py
 ```
 
-Isso restaura o backup mais recente e requer sair e entrar na sessão.
+Isso restaura o backup mais recente. Backups com a ponte recarregável podem
+reativar a barra na mesma sessão. Backups da extensão antiga ainda podem exigir
+uma nova entrada na sessão; o comando informa o resultado.
 
 ## Integridade, fontes e licenças
 

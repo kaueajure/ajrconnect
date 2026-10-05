@@ -12,6 +12,7 @@ import tempfile
 import re
 from check_compatibility import check_compatibility, check_package
 from dependencies import ensure_dependencies
+from integration import install_extension, refresh_integration
 
 BASE = Path(__file__).resolve().parent
 HOME = Path.home()
@@ -92,10 +93,8 @@ def install_files():
         state['enabled-extensions'] = shell.get_strv('enabled-extensions')
         state['disabled-extensions'] = shell.get_strv('disabled-extensions')
     (BACKUP / 'settings.json').write_text(json.dumps(state, indent=2))
-    if extension_managed:
-        subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
     APP.mkdir(parents=True, exist_ok=True)
-    for name in ('ajr_app.py', 'core.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
+    for name in ('ajr_app.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
         shutil.copy2(BASE / name, APP / name)
     # Replacing the inode permits an existing RDP process to finish normally.
     fd, temporary = tempfile.mkstemp(prefix='.ajr-freerdp-', dir=APP)
@@ -122,17 +121,14 @@ def install_files():
         '@AJR_LAUNCHER@', desktop_exec(sys.executable, BIN)))
     DESKTOP.chmod(0o644)
     if extension_managed:
-        EXT.mkdir(parents=True, exist_ok=True)
-        for name in ('extension.js', 'stylesheet.css', 'metadata.json'):
-            shutil.copy2(BASE / 'extensao' / name, EXT / name)
+        had_bridge = (EXT / 'bridge.json').is_file()
+        manifest, loader_changed = install_extension(BASE / 'extensao', EXT)
     # Remove only the conflicting shortcut, leaving other user bindings intact.
     if wm is not None:
         wm.set_strv('toggle-fullscreen', [key for key in state['toggle-fullscreen']
                                         if key.lower() not in ('<ctrl><alt>return', '<control><alt>return')])
-    # A loaded ES module cannot be replaced in this Wayland session.
-    # Keep v5 disabled; the autostart enables only metadata version >= 6.
+    integration_status = 'unavailable'
     if extension_managed:
-        subprocess.run(['gnome-extensions', 'disable', UUID], check=False)
         autostart = HOME / '.config/autostart/ajr-connect-integration.desktop'
         autostart.parent.mkdir(parents=True, exist_ok=True)
         if autostart.exists():
@@ -140,15 +136,32 @@ def install_files():
         autostart.write_text('[Desktop Entry]\nType=Application\nName=AJR Connect Integration\n'
             'Exec=' + desktop_exec(sys.executable, APP / 'enable-extension.py') + '\n'
             'OnlyShowIn=GNOME;\nX-GNOME-Autostart-enabled=true\nNoDisplay=true\n')
+        integration_status = refresh_integration(manifest['revision'])
+        if had_bridge and loader_changed and integration_status == 'ready':
+            integration_status = 'loader-restart-required'
     Gio.Settings.sync()
     (DATA / 'last-install.json').write_text(json.dumps({'version': 6, 'backup': str(BACKUP),
-        'needs_shell_restart': extension_managed, 'desktop_managed': True,
+        'needs_shell_restart': integration_status in ('restart-required', 'loader-restart-required', 'not-discovered'),
+        'integration_status': integration_status,
+        'bridge_loader_changed': loader_changed if extension_managed else False,
+        'desktop_managed': True,
         'launcher_managed': True, 'extension_managed': extension_managed,
         'autostart_managed': extension_managed}, indent=2))
     print('Instalado em:', APP)
     print('Backup:', BACKUP)
-    if extension_managed:
-        print('Saia da sessão e entre novamente para carregar a AJR Bar.')
+    print('Feche e abra o AJR Connect para usar o aplicativo atualizado. Reconecte o Windows para usar o cliente atualizado.')
+    if integration_status == 'ready':
+        print('AJR Bar atualizada na sessão atual. Não é necessário sair do Zorin.')
+    elif integration_status == 'restart-required':
+        print('O aplicativo já está atualizado. A troca da extensão antiga pela ponte recarregável exige uma nova entrada na sessão; as próximas atualizações da barra não exigirão isso.')
+    elif integration_status == 'loader-restart-required':
+        print('A parte fixa da integração mudou. Essa alteração excepcional precisa de uma nova entrada na sessão para concluir a atualização da barra.')
+    elif integration_status == 'not-discovered':
+        print('Aplicativo instalado. Para usar a AJR Bar pela primeira vez, entre novamente na sessão; as próximas atualizações serão aplicadas na sessão atual.')
+    elif integration_status == 'failed':
+        print('O aplicativo foi atualizado, mas a AJR Bar não confirmou a atualização. Use os controles do aplicativo e execute o instalador novamente para repetir a tentativa.')
+    elif extension_managed:
+        print('Aplicativo atualizado. A AJR Bar será ativada na próxima entrada no desktop; os controles do aplicativo já estão disponíveis.')
     else:
         print('AJR Bar indisponível neste desktop. Use os controles do aplicativo e Ctrl+Alt+Enter.')
     return 0

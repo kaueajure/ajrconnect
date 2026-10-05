@@ -6,6 +6,7 @@ import shutil
 import subprocess
 from gi.repository import Gio
 from install import lookup_settings
+from integration import installed_revision, refresh_integration
 
 home = Path.home()
 data = home / '.local/share/ajr-connect'
@@ -52,4 +53,11 @@ for key in ('enabled-extensions', 'disabled-extensions'):
 Gio.Settings.sync()
 print('Backup restaurado:', backup)
 if installation.get('extension_managed', True):
-    print('Saia da sessão e entre novamente para carregar a extensão restaurada.')
+    revision = installed_revision()
+    status = refresh_integration(revision) if revision else 'restart-required'
+    if status == 'ready':
+        print('AJR Bar restaurada na sessão atual. Feche e abra o aplicativo e reconecte o Windows.')
+    elif status == 'restart-required':
+        print('O backup usa uma integração que exige uma nova entrada na sessão para carregar a barra restaurada.')
+    else:
+        print('Aplicativo restaurado. A integração ficará disponível na próxima entrada no desktop.')

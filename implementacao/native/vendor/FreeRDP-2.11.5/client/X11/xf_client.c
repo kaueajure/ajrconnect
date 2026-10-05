@@ -1667,7 +1667,8 @@ static DWORD WINAPI xf_client_thread(LPVOID param)
 		if (xfc->window)
 			xf_floatbar_hide_and_show(xfc->window->floatbar);
 
-		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, xfc->ajr_pending ? 100 : INFINITE);
+		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE,
+            (xfc->ajr_pending || xfc->ajr_local_pending) ? 100 : INFINITE);
 
 		if (waitStatus == WAIT_FAILED)
 			break;

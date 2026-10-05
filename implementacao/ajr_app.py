@@ -5,6 +5,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gio, GLib, Gdk
 from pathlib import Path
+import copy
 import json
 import os
 import re
@@ -15,11 +16,90 @@ import subprocess
 import threading
 import time
 from core import (APP_DIR, DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
-                  detect_monitors, host_port, load_cfg, resolve_monitor, save_cfg)
+                  DEFAULT, PROFILE_KEYS, detect_monitors, host_port, load_cfg,
+                  resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
+from integration import installed_revision
 
 APP_ID = 'com.ajure.AJRConnect'
 EXTENSION_ID = 'ajr-connect@ajure.local'
+LOCAL_BUS = 'org.gnome.Shell'
+LOCAL_PATH = '/com/ajure/AJRConnect'
+LOCAL_INTERFACE = 'com.ajure.AJRConnect.Keyboard'
+
+
+def shortcut_parts(value):
+    valid, key, modifiers = Gtk.accelerator_parse(value)
+    allowed = Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK | \
+              Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
+    if not valid or not key or not Gtk.accelerator_valid(key, modifiers) or modifiers & ~allowed or not modifiers & (
+            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK):
+        raise ValueError('Escolha uma combinação com Ctrl, Alt ou Super e uma tecla.')
+    return Gdk.keyval_to_lower(key), modifiers
+
+
+class ShortcutEditor(Adw.Window):
+    def __init__(self, parent, current, callback):
+        super().__init__(transient_for=parent, modal=True, title='Atalho de tela cheia')
+        self.callback, self.value = callback, current
+        self.set_default_size(420, 240)
+        view = Adw.ToolbarView()
+        view.add_top_bar(Adw.HeaderBar())
+        self.set_content(view)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        for side in ('top', 'bottom', 'start', 'end'):
+            getattr(box, f'set_margin_{side}')(24)
+        view.set_content(box)
+        box.append(Gtk.Label(label='Pressione a combinação desejada com Ctrl, Alt ou Super.', wrap=True))
+        self.preview = Gtk.Label(label=Gtk.accelerator_get_label(*shortcut_parts(current)), wrap=True)
+        self.preview.add_css_class('title-2')
+        box.append(self.preview)
+        self.error = Gtk.Label(wrap=True)
+        self.error.add_css_class('error')
+        box.append(self.error)
+        actions = Gtk.Box(spacing=8, homogeneous=True)
+        box.append(actions)
+        reset = Gtk.Button(label='Restaurar padrão')
+        reset.connect('clicked', lambda *_: self.set_shortcut(DEFAULT['fullscreen_shortcut']))
+        actions.append(reset)
+        save = Gtk.Button(label='Salvar atalho')
+        save.add_css_class('suggested-action')
+        save.connect('clicked', lambda *_: self.save())
+        actions.append(save)
+        controller = Gtk.EventControllerKey()
+        controller.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        controller.connect('key-pressed', self.key_pressed)
+        self.add_controller(controller)
+
+    def set_shortcut(self, value):
+        self.value = value
+        self.preview.set_text(Gtk.accelerator_get_label(*shortcut_parts(value)))
+        self.error.set_text('')
+
+    def key_pressed(self, _controller, key, _code, state):
+        if Gdk.keyval_name(key) in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R',
+                'Super_L', 'Super_R', 'Shift_L', 'Shift_R', 'Meta_L', 'Meta_R'):
+            return True
+        modifiers = state & Gtk.accelerator_get_default_mod_mask()
+        if not modifiers:
+            if key == Gdk.KEY_Escape:
+                self.close()
+                return True
+            return False  # Keep Tab navigation and keyboard activation of buttons.
+        if key == Gdk.KEY_ISO_Left_Tab:
+            key = Gdk.KEY_Tab
+        value = Gtk.accelerator_name(Gdk.keyval_to_lower(key), modifiers)
+        try:
+            shortcut_parts(value)
+        except ValueError as exc:
+            self.error.set_text(str(exc))
+        else:
+            self.set_shortcut(value)
+        return True
+
+    def save(self):
+        self.callback(self.value)
+        self.close()
 
 
 def normalize_share_name(value):
@@ -44,7 +124,7 @@ def secret(server, user, operation, password=None):
     cmd += ['app', 'ajr-connect', 'server', server, 'user', user]
     try:
         result = subprocess.run(cmd, input=password, text=True, capture_output=True, timeout=5)
-        return result.stdout.strip() if operation == 'lookup' and result.returncode == 0 \
+        return result.stdout.removesuffix('\n') if operation == 'lookup' and result.returncode == 0 \
             else result.returncode == 0
     except (OSError, subprocess.TimeoutExpired):
         return ''
@@ -54,6 +134,8 @@ class ShareEditor(Adw.Window):
     def __init__(self, parent, share, on_save):
         super().__init__(transient_for=parent, modal=True, title='Pasta compartilhada')
         self.callback = on_save
+        self._chooser = None
+        self.connect('close-request', self.close_requested)
         self.set_default_size(480, 280)
         view = Adw.ToolbarView()
         self.set_content(view)
@@ -83,8 +165,24 @@ class ShareEditor(Adw.Window):
         box.append(self.error)
 
     def choose(self, *_):
-        chooser = Gtk.FileChooserNative.new('Escolher pasta', self,
-            Gtk.FileChooserAction.SELECT_FOLDER, 'Selecionar', 'Cancelar')
+        if self._chooser:
+            self._chooser.present()
+            return
+        # A GTK dialog avoids broken desktop portals on some Zorin sessions.
+        # Keep a strong reference until response/close, including with PyGObject.
+        chooser = Gtk.FileChooserDialog(title='Escolher pasta no Linux',
+            transient_for=self, modal=True, action=Gtk.FileChooserAction.SELECT_FOLDER)
+        self._chooser = chooser
+        chooser.add_buttons('Cancelar', Gtk.ResponseType.CANCEL,
+                            'Selecionar pasta', Gtk.ResponseType.ACCEPT)
+        chooser.set_default_response(Gtk.ResponseType.ACCEPT)
+        current = Path(self.path.get_text().strip()).expanduser()
+        if not self.path.get_text().strip() or not current.is_dir():
+            current = Path.home()
+        try:
+            chooser.set_current_folder(Gio.File.new_for_path(str(current)))
+        except GLib.Error as exc:
+            self.error.set_text('Não foi possível abrir a pasta inicial: ' + exc.message)
         def response(dialog, result):
             if result == Gtk.ResponseType.ACCEPT:
                 chosen = dialog.get_file()
@@ -92,9 +190,19 @@ class ShareEditor(Adw.Window):
                     self.path.set_text(chosen.get_path())
                     if not self.name.get_text().strip():
                         self.name.set_text(normalize_share_name(Path(chosen.get_path()).name))
+                    self.error.set_text('')
+                else:
+                    self.error.set_text('Selecione uma pasta local ou monte a pasta de rede no Linux primeiro.')
+            self._chooser = None
             dialog.destroy()
         chooser.connect('response', response)
-        chooser.show()
+        chooser.present()
+
+    def close_requested(self, *_):
+        if self._chooser:
+            self._chooser.destroy()
+            self._chooser = None
+        return False
 
     def save(self, *_):
         path = Path(self.path.get_text().strip()).expanduser()
@@ -113,7 +221,13 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title='AJR Connect')
         self.cfg = load_cfg()
-        self.cfg["capture_keyboard"] = True
+        try:
+            shortcut_parts(self.cfg['fullscreen_shortcut'])
+        except ValueError:
+            self.cfg['fullscreen_shortcut'] = DEFAULT['fullscreen_shortcut']
+        self._profiles_updating = False
+        self._password_generation = 0
+        self._integration_ready = False
         self.proc, self.session, self.x11 = None, None, None
         self._status_generation = 0
         self._closing = False
@@ -130,19 +244,28 @@ class MainWindow(Adw.ApplicationWindow):
         view.add_top_bar(self.integration_banner)
         def integration_status():
             try:
-                result = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync('org.gnome.Shell', '/org/gnome/Shell',
-                    'org.gnome.Shell.Extensions', 'GetExtensionInfo',
-                    GLib.Variant('(s)', (EXTENSION_ID,)), None,
-                    Gio.DBusCallFlags.NONE, 2000, None).unpack()[0]
-                ready = result.get('version', 0) >= 6 and result.get('state') == 1
-                message = ('Saia da sessão e entre novamente para ativar a nova AJR Bar.'
-                           if result.get('version', 0) < 6 else
-                           'A AJR Bar está desativada. Ative AJR Connect no aplicativo Extensões.')
+                ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                    LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'Ping', None,
+                    GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                message = 'AJR Bar indisponível. Use os controles do aplicativo ou o atalho configurado.'
             except GLib.Error:
-                ready, message = False, 'AJR Bar indisponível nesta sessão. Use os controles do aplicativo ou Ctrl+Alt+Enter.'
+                ready, message = False, 'AJR Bar indisponível. Use os controles do aplicativo ou o atalho de tela cheia configurado.'
+                try:
+                    result = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                        'org.gnome.Shell', '/org/gnome/Shell', 'org.gnome.Shell.Extensions',
+                        'GetExtensionInfo', GLib.Variant('(s)', (EXTENSION_ID,)), None,
+                        Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                    if result and result.get('version', 0) < 8 and installed_revision():
+                        message = 'Aplicativo atualizado. A nova integração precisa de um único novo login; depois, a barra poderá ser atualizada nesta sessão.'
+                    elif result:
+                        message = 'A AJR Bar está desativada. Ative AJR Connect no aplicativo Extensões.'
+                except GLib.Error:
+                    pass
             def done():
+                self._integration_ready = ready
                 self.integration_banner.set_title(message)
                 self.integration_banner.set_revealed(not ready)
+                self.update_keyboard_options()
             GLib.idle_add(done)
         threading.Thread(target=integration_status, daemon=True).start()
         logs = Gtk.Button(icon_name='text-x-generic-symbolic', tooltip_text='Abrir registros da conexão')
@@ -190,13 +313,32 @@ class MainWindow(Adw.ApplicationWindow):
         box.append(self.form)
         group = Adw.PreferencesGroup(title='Conexão')
         self.form.append(group)
+        self.profile = Adw.ComboRow(title='Conexões salvas')
+        group.add(self.profile)
+        self.profile_name = Adw.EntryRow(title='Nome da conexão')
+        group.add(self.profile_name)
+        profile_actions = Gtk.Box(spacing=8, homogeneous=True)
+        for label, callback in [('Nova', self.new_profile), ('Salvar', self.save_profile),
+                                ('Excluir', self.delete_profile)]:
+            button = Gtk.Button(label=label)
+            button.connect('clicked', callback)
+            profile_actions.append(button)
+            if label == 'Excluir':
+                self.profile_delete = button
+        profile_actions.set_margin_top(12)
+        group.add(profile_actions)
         self.server = Adw.EntryRow(title='Servidor', text=str(self.cfg['server']))
         self.user = Adw.EntryRow(title='Usuário', text=str(self.cfg['user']))
         self.password = Adw.PasswordEntryRow(title='Senha')
         for row in (self.server, self.user, self.password):
             group.add(row)
+        self.remember = Adw.SwitchRow(title='Lembrar senha desta conexão',
+            subtitle='Armazenada no chaveiro do GNOME.', active=self.cfg['remember'])
+        group.add(self.remember)
         self.password.connect('entry-activated', lambda *_: self.do_connect())
         self.server.connect('changed', lambda *_: self.schedule_status())
+        for row in (self.server, self.user):
+            row.connect('changed', self.identity_changed)
         self.share_group = Adw.PreferencesGroup(title='Pastas no Windows',
             description='Disponíveis em Este Computador durante a conexão.')
         self.form.append(self.share_group)
@@ -222,11 +364,32 @@ class MainWindow(Adw.ApplicationWindow):
         self.monitor.add_suffix(refresh)
         display.add(self.monitor)
         self.fullscreen = Adw.SwitchRow(title='Iniciar em tela cheia',
-            subtitle='Ctrl + Alt + Enter alterna entre janela e tela cheia.', active=self.cfg['fullscreen'])
-        keyboard_policy = Adw.ActionRow(title='Teclado automático',
-            subtitle='Tela cheia: atalhos no Windows. Janela: atalhos globais no Linux.')
+            subtitle='Use o atalho abaixo para alternar entre janela e tela cheia.', active=self.cfg['fullscreen'])
         display.add(self.fullscreen)
-        display.add(keyboard_policy)
+        self.shortcut = Adw.ActionRow(title='Atalho de tela cheia')
+        change = Gtk.Button(label='Alterar', valign=Gtk.Align.CENTER)
+        change.connect('clicked', lambda *_: ShortcutEditor(self,
+            self.cfg['fullscreen_shortcut'], self.set_shortcut).present())
+        self.shortcut.add_suffix(change)
+        display.add(self.shortcut)
+        keyboard = Adw.PreferencesGroup(title='Prioridade dos atalhos',
+            description='Ative para executar no Windows remoto. Desative para executar no computador local.')
+        self.form.append(keyboard)
+        self.keyboard_mode = Adw.ComboRow(title='Encaminhar atalhos ao Windows',
+            model=Gtk.StringList.new(['Somente em tela cheia', 'Também em modo janela', 'Manter atalhos no computador local']),
+            selected=('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
+        keyboard.add(self.keyboard_mode)
+        self.keyboard_rows = {}
+        for key, title, subtitle in [
+            ('remote_alt_tab', 'Alt + Tab', 'Alternar aplicativos; Shift inverte a ordem.'),
+            ('remote_super', 'Tecla Windows / Super', 'Pressionada sozinha: menu Iniciar ou visão de atividades local.'),
+            ('remote_alt_f4', 'Alt + F4', 'Fechar a janela remota ou a janela da conexão local.')]:
+            row = Adw.SwitchRow(title=title, subtitle=subtitle, active=self.cfg[key])
+            keyboard.add(row)
+            self.keyboard_rows[key] = row
+        self.keyboard_note = Adw.ActionRow(title='Integração com o desktop')
+        keyboard.add(self.keyboard_note)
+        self.keyboard_mode.connect('notify::selected', lambda *_: self.update_keyboard_options())
         self.quality = Adw.ComboRow(title='Qualidade',
             model=Gtk.StringList.new(['Equilibrada', 'Mais qualidade', 'Mais leve']),
             selected=self.cfg['quality'])
@@ -234,10 +397,7 @@ class MainWindow(Adw.ApplicationWindow):
         options = Adw.PreferencesGroup(title='Preferências')
         self.form.append(options)
         self.clipboard = Adw.SwitchRow(title='Compartilhar área de transferência', active=self.cfg['clipboard'])
-        self.remember = Adw.SwitchRow(title='Lembrar senha', subtitle='Armazenada no chaveiro do GNOME.',
-                                     active=self.cfg['remember'])
         options.add(self.clipboard)
-        options.add(self.remember)
         self.error = Gtk.Label(xalign=0, wrap=True)
         self.error.add_css_class('error')
         self.error.set_visible(False)
@@ -257,15 +417,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.refresh_monitors()
         self.schedule_status()
         # Keyring access stays in the application; no password is logged or exported.
-        if self.cfg['remember']:
-            def lookup():
-                value = secret(self.cfg['server'], self.cfg['user'], 'lookup')
-                if value:
-                    def fill():
-                        if not self.password.get_text() and not self._closing:
-                            self.password.set_text(value)
-                    GLib.idle_add(fill)
-            threading.Thread(target=lookup, daemon=True).start()
+        self.refresh_profiles()
+        self.profile.connect('notify::selected', self.profile_changed)
+        self.set_shortcut(self.cfg['fullscreen_shortcut'], persist=False)
+        self.lookup_password()
+        self.update_keyboard_options()
         self._poll = GLib.timeout_add(250, self.poll_session)
 
     def refresh_monitors(self):
@@ -284,12 +440,163 @@ class MainWindow(Adw.ApplicationWindow):
     def persist(self):
         self.cfg.update(server=self.server.get_text().strip(), user=self.user.get_text().strip(),
             quality=int(self.quality.get_selected()), fullscreen=self.fullscreen.get_active(),
-            capture_keyboard=True, clipboard=self.clipboard.get_active(),
+            keyboard_mode=('fullscreen', 'always', 'local')[self.keyboard_mode.get_selected()],
+            capture_keyboard=self.keyboard_mode.get_selected() != 2, clipboard=self.clipboard.get_active(),
             remember=self.remember.get_active())
+        self.cfg.update({key: row.get_active() for key, row in self.keyboard_rows.items()})
         i = int(self.monitor.get_selected())
         if 0 <= i < len(self.monitors):
             self.cfg.update(monitor=self.monitors[i]['id'], monitor_connector=self.monitors[i]['connector'])
+        if self.cfg['active_profile']:
+            store_profile(self.cfg, self.profile_name.get_text())
         save_cfg(self.cfg)
+
+    def refresh_profiles(self):
+        self._profiles_updating = True
+        profiles = self.cfg['profiles']
+        self.profile.set_model(Gtk.StringList.new([p['name'] for p in profiles] or ['Nenhuma conexão salva']))
+        index = next((i for i, p in enumerate(profiles) if p['id'] == self.cfg['active_profile']), None)
+        self.profile.set_sensitive(bool(profiles))
+        self.profile_delete.set_sensitive(index is not None)
+        self.profile.set_selected(index if index is not None else (Gtk.INVALID_LIST_POSITION if profiles else 0))
+        self.profile_name.set_text(profiles[index]['name'] if index is not None else '')
+        self._profiles_updating = False
+
+    def identity_changed(self, *_):
+        self._password_generation += 1
+        self.password.set_text('')
+
+    def lookup_password(self):
+        self._password_generation += 1
+        generation = self._password_generation
+        server, user = self.server.get_text().strip(), self.user.get_text().strip()
+        if not self.remember.get_active():
+            return
+        def lookup():
+            value = secret(server, user, 'lookup')
+            def fill():
+                if value and generation == self._password_generation and not self._closing \
+                        and not self.password.get_text() and not self.proc \
+                        and (self.server.get_text().strip(), self.user.get_text().strip()) == (server, user):
+                    self.password.set_text(value)
+            GLib.idle_add(fill)
+        threading.Thread(target=lookup, daemon=True).start()
+
+    def apply_profile(self, refresh_profiles=True):
+        self.identity_changed()
+        self.server.set_text(self.cfg['server'])
+        self.user.set_text(self.cfg['user'])
+        self.fullscreen.set_active(self.cfg['fullscreen'])
+        self.clipboard.set_active(self.cfg['clipboard'])
+        self.remember.set_active(self.cfg['remember'])
+        self.quality.set_selected(self.cfg['quality'])
+        self.keyboard_mode.set_selected(('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
+        for key, row in self.keyboard_rows.items():
+            row.set_active(self.cfg[key])
+        try:
+            self.set_shortcut(self.cfg['fullscreen_shortcut'], persist=False)
+        except ValueError:
+            self.set_shortcut(DEFAULT['fullscreen_shortcut'], persist=False)
+        self.refresh_monitors()
+        self.render_shares()
+        if refresh_profiles:
+            self.refresh_profiles()
+        else:
+            profile = next(p for p in self.cfg['profiles'] if p['id'] == self.cfg['active_profile'])
+            self.profile_name.set_text(profile['name'])
+            self.profile_delete.set_sensitive(True)
+        self.show_error('')
+        self.lookup_password()
+        self.schedule_status()
+
+    def profile_changed(self, *_):
+        if self._profiles_updating:
+            return
+        index = self.profile.get_selected()
+        if index >= len(self.cfg['profiles']):
+            return
+        profile_id = self.cfg['profiles'][index]['id']
+        if profile_id == self.cfg['active_profile']:
+            return
+        self.persist()
+        select_profile(self.cfg, profile_id)
+        save_cfg(self.cfg)
+        # Replacing a ComboRow model inside notify::selected can recurse/crash GTK.
+        self.apply_profile(refresh_profiles=False)
+
+    def save_profile(self, *_):
+        self.show_error('')
+        self.persist()
+        if not self.cfg['server'] or not self.cfg['user']:
+            self.show_error('Preencha servidor e usuário antes de salvar a conexão.')
+            return
+        store_profile(self.cfg, self.profile_name.get_text())
+        save_cfg(self.cfg)
+        self.refresh_profiles()
+        cfg, password = copy.deepcopy(self.cfg), self.password.get_text()
+        def save_password():
+            if cfg['remember'] and password:
+                if not secret(cfg['server'], cfg['user'], 'store', password):
+                    GLib.idle_add(lambda: self.toast.add_toast(Adw.Toast(title='Conexão salva. Não foi possível salvar a senha no chaveiro.')))
+            elif not cfg['remember']:
+                secret(cfg['server'], cfg['user'], 'clear')
+        threading.Thread(target=save_password, daemon=True).start()
+        self.toast.add_toast(Adw.Toast(title='Conexão salva.'))
+
+    def new_profile(self, *_):
+        self.persist()
+        self.cfg.update(copy.deepcopy({key: DEFAULT[key] for key in PROFILE_KEYS}))
+        self.cfg['active_profile'] = ''
+        save_cfg(self.cfg)
+        self.apply_profile()
+        self.profile_name.grab_focus()
+
+    def delete_profile(self, *_):
+        profile = next((p for p in self.cfg['profiles'] if p['id'] == self.cfg['active_profile']), None)
+        if profile is None:
+            self.show_error('Selecione uma conexão salva para excluir.')
+            return
+        dialog = Adw.MessageDialog(transient_for=self, modal=True,
+            heading='Excluir conexão?', body=f'A conexão “{profile["name"]}” será removida deste aplicativo.')
+        dialog.add_response('cancel', 'Cancelar')
+        dialog.add_response('delete', 'Excluir')
+        dialog.set_response_appearance('delete', Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response('cancel')
+        dialog.set_close_response('cancel')
+        def response(_dialog, result):
+            if result != 'delete':
+                return
+            self.cfg['profiles'] = [p for p in self.cfg['profiles'] if p['id'] != profile['id']]
+            # Keyring entries belong to server/user pairs and can be shared by profiles.
+            if not any((p['server'], p['user']) == (profile['server'], profile['user'])
+                       for p in self.cfg['profiles']):
+                threading.Thread(target=secret,
+                    args=(profile['server'], profile['user'], 'clear'), daemon=True).start()
+            self.cfg['active_profile'] = ''
+            if self.cfg['profiles']:
+                select_profile(self.cfg, self.cfg['profiles'][0]['id'])
+            else:
+                self.cfg.update(copy.deepcopy({key: DEFAULT[key] for key in PROFILE_KEYS}))
+            save_cfg(self.cfg)
+            self.apply_profile()
+        dialog.connect('response', response)
+        dialog.present()
+
+    def set_shortcut(self, value, persist=True):
+        key, modifiers = shortcut_parts(value)
+        self.cfg['fullscreen_shortcut'] = Gtk.accelerator_name(key, modifiers)
+        self.shortcut.set_subtitle(Gtk.accelerator_get_label(key, modifiers))
+        if persist:
+            self.persist()
+
+    def update_keyboard_options(self):
+        active = self.keyboard_mode.get_selected() != 2
+        for row in self.keyboard_rows.values():
+            row.set_sensitive(active)
+        self.keyboard_note.set_subtitle(
+            'Prioridade individual disponível com a AJR Bar atualizada e ativa. As demais combinações seguem a captura do teclado.'
+            if self._integration_ready else
+            'Para misturar atalhos locais e remotos, ative a AJR Bar atualizada no GNOME. Sem ela, escolha todos no Windows ou todos locais.')
 
     def render_shares(self):
         while (child := self.share_list.get_first_child()) is not None:
@@ -378,7 +685,18 @@ class MainWindow(Adw.ApplicationWindow):
                 if not Path(share['path']).expanduser().is_dir():
                     raise ValueError(f"A pasta {share['name']} não existe: {share['path']}")
             command = build_command(self.cfg, monitor)
-        except (ValueError, OSError, subprocess.TimeoutExpired) as exc:
+            shortcut_key, shortcut_mods = shortcut_parts(self.cfg['fullscreen_shortcut'])
+            if self.cfg['keyboard_mode'] != 'local' and not all(
+                    self.cfg[key] for key in self.keyboard_rows):
+                try:
+                    ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                        LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'Ping', None,
+                        GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                except GLib.Error:
+                    ready = False
+                if not ready:
+                    raise ValueError('Ative a AJR Bar atualizada para usar prioridades individuais de teclado.')
+        except (ValueError, OSError, subprocess.TimeoutExpired, GLib.Error) as exc:
             self.show_error(str(exc))
             return
         password = self.password.get_text()
@@ -399,7 +717,13 @@ class MainWindow(Adw.ApplicationWindow):
                     secret(cfg['server'], cfg['user'], 'clear')
                 token = secrets.token_hex(4)
                 env = dict(os.environ, AJR_CONTROL_TOKEN=token,
-                           AJR_MONITOR_CONNECTOR=monitor['connector'])
+                           AJR_MONITOR_CONNECTOR=monitor['connector'],
+                           AJR_KEYBOARD_MODE=cfg['keyboard_mode'],
+                           AJR_FULLSCREEN_KEY=str(shortcut_key),
+                           AJR_FULLSCREEN_MODS=str(int(shortcut_mods) & 13 |
+                               (64 if shortcut_mods & Gdk.ModifierType.SUPER_MASK else 0)),
+                           AJR_REMOTE_KEYS=str(sum(bit for key, bit in
+                               [('remote_alt_tab', 1), ('remote_super', 2), ('remote_alt_f4', 4)] if cfg[key])))
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
                 log_path = DATA_DIR / f"session-{time.strftime('%Y%m%d-%H%M%S')}-{token}.log"
                 with log_path.open('w') as log:
@@ -481,6 +805,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.present()
             return GLib.SOURCE_CONTINUE
         state = self.x11.state(self.proc.pid)
+        self.dispatch_local_shortcuts()
         if state and not self._started:
             self._started = True
             self.connect_btn.set_label('Desconectar')
@@ -494,6 +819,34 @@ class MainWindow(Adw.ApplicationWindow):
         elif time.monotonic() - self._launch_time > 10:
             self.set_status('Aguardando a sessão', 'A autenticação está em andamento. Você pode cancelar.')
         return GLib.SOURCE_CONTINUE
+
+    def dispatch_local_shortcuts(self):
+        window = self.x11.find_window(self.proc.pid)
+        if not window:
+            return
+        requests = self.x11.property(window, '_AJR_LOCAL_KEYS_V1', delete=True) or []
+        if len(requests) % 2:
+            return
+        for action, reverse in zip(requests[::2], requests[1::2]):
+            pid, token = self.proc.pid, self.session['token']
+            def done(connection, result, pid=pid, token=token):
+                try:
+                    accepted = connection.call_finish(result).unpack()[0]
+                    if not accepted:
+                        raise RuntimeError('A integração local recusou o atalho.')
+                except (GLib.Error, RuntimeError) as exc:
+                    self.toast.add_toast(Adw.Toast(title='Não foi possível executar o atalho local: ' + str(exc)))
+                finally:
+                    if self.proc and self.proc.pid == pid:
+                        self.x11.control(pid, token, 6)
+            try:
+                Gio.bus_get_sync(Gio.BusType.SESSION, None).call(
+                    LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'LocalShortcut',
+                    GLib.Variant('(usub)', (pid, token, action, bool(reverse))),
+                    GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1500, None, done)
+            except GLib.Error as exc:
+                self.toast.add_toast(Adw.Toast(title='Integração de teclado indisponível: ' + exc.message))
+                self.x11.control(pid, token, 6)
 
     def open_logs(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)

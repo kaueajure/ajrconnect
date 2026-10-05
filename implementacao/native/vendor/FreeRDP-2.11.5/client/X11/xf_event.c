@@ -508,17 +508,7 @@ static BOOL xf_event_KeyPress(xfContext* xfc, const XKeyEvent* event, BOOL app)
 	char str[256];
 	WINPR_UNUSED(app);
 	XLookupString((XKeyEvent*)event, str, sizeof(str), &keysym, NULL);
-    /* Event modifiers survive the asynchronous remote focus synchronization. */
-    if (!xfc->remote_app && xfc->fullscreen_toggle && keysym == XK_Return &&
-        (((event->state & ControlMask) && (event->state & Mod1Mask)) || xfc->ajr_return_down))
-    {
-        if (!xfc->ajr_return_down)
-        {
-            xfc->ajr_return_down = TRUE;
-            xf_toggle_fullscreen(xfc);
-        }
-        return TRUE;
-    }
+    if (xf_ajr_key(xfc, event, keysym, TRUE)) return TRUE;
 	xf_keyboard_key_press(xfc, event->keycode, keysym);
 	return TRUE;
 }
@@ -529,6 +519,7 @@ static BOOL xf_event_KeyRelease(xfContext* xfc, const XKeyEvent* event, BOOL app
 	char str[256];
 	WINPR_UNUSED(app);
 	XLookupString((XKeyEvent*)event, str, sizeof(str), &keysym, NULL);
+	if (xf_ajr_key(xfc, event, keysym, FALSE)) return TRUE;
 	xf_keyboard_key_release(xfc, event->keycode, keysym);
 	return TRUE;
 }
@@ -600,6 +591,9 @@ static BOOL xf_event_FocusOut(xfContext* xfc, const XFocusOutEvent* event, BOOL 
 {
 	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
 		return TRUE;
+
+    xfc->ajr_shortcut_down = 0;
+    memset(xfc->ajr_swallowed, 0, sizeof(xfc->ajr_swallowed));
 
 	xfc->focused = FALSE;
     xf_ajr_release_keyboard(xfc);

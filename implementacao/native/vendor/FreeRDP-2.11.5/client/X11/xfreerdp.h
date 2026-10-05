@@ -124,7 +124,13 @@ struct xf_context
 {
 	rdpContext context;
 	DEFINE_RDP_CLIENT_COMMON();
-    BOOL ajr_pending, ajr_grabbed, ajr_return_down;
+    BOOL ajr_pending, ajr_grabbed;
+    BOOL ajr_capture_window, ajr_local_pending;
+    KeySym ajr_fullscreen_key;
+    unsigned int ajr_fullscreen_mods, ajr_remote_keys;
+    BYTE ajr_shortcut_down, ajr_super_key;
+    BOOL ajr_swallowed[256];
+    UINT64 ajr_local_deadline;
     UINT32 ajr_token;
     UINT64 ajr_deadline;
     unsigned long ajr_state[8];
