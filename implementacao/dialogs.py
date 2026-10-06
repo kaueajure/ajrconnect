@@ -16,18 +16,24 @@ class ShortcutEditor(Adw.Window):
         self.add_css_class('ajr-dialog')
         self.callback, self.value = callback, current
         self.routing = routing
-        self.set_default_size(480, 360 if routing else 280)
+        self.set_default_size(480, 520 if routing else 360)
+        self.set_size_request(360, 280)
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
         self.set_content(view)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for side in ('top', 'bottom', 'start', 'end'):
             getattr(box, f'set_margin_{side}')(24)
-        view.set_content(box)
-        box.append(Gtk.Label(label='Grave ou digite a combinação.', wrap=True))
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(box)
+        view.set_content(scroll)
+        box.append(Gtk.Label(label='Combinação atual', xalign=0,
+                             css_classes=['ajr-field-label']))
         self.preview = Gtk.Label(label=Gtk.accelerator_get_label(*shortcut_parts(current, routing=routing)), wrap=True)
         self.preview.add_css_class('ajr-shortcut-preview')
         box.append(self.preview)
+        box.append(Gtk.Label(label='Grave ou digite a combinação.', wrap=True, xalign=0,
+                             css_classes=['ajr-muted']))
         self.record = Gtk.ToggleButton(label='Gravar combinação', active=True)
         box.append(self.record)
         self.connect('map', lambda *_: self.record.grab_focus())
@@ -46,9 +52,16 @@ class ShortcutEditor(Adw.Window):
         box.append(group)
         self.error = Gtk.Label(wrap=True)
         self.error.add_css_class('error')
+        self.error.set_xalign(0)
+        self.error.set_selectable(True)
+        self.error.set_focusable(True)
+        self.error.set_visible(False)
+        self.error.connect('notify::label', lambda widget, *_:
+                           widget.set_visible(bool(widget.get_text())))
         box.append(self.error)
         actions = Gtk.Box(spacing=8, homogeneous=True)
-        box.append(actions)
+        actions.add_css_class('ajr-dialog-actions')
+        view.add_bottom_bar(actions)
         if not routing:
             reset = Gtk.Button(label='Restaurar padrão')
             reset.connect('clicked', lambda *_: self.set_shortcut(DEFAULT['fullscreen_shortcut']))
@@ -132,7 +145,8 @@ class ShareEditor(Adw.Window):
         self.callback = on_save
         self._chooser = None
         self.connect('close-request', self.close_requested)
-        self.set_default_size(480, 280)
+        self.set_default_size(480, 340)
+        self.set_size_request(360, 260)
         view = Adw.ToolbarView()
         self.set_content(view)
         header = Adw.HeaderBar()
@@ -144,8 +158,11 @@ class ShareEditor(Adw.Window):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         for side in ('top', 'bottom', 'start', 'end'):
             getattr(box, f'set_margin_{side}')(24)
-        view.set_content(box)
-        group = Adw.PreferencesGroup(description='A pasta ficará disponível no Explorador do Windows.')
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER)
+        scroll.set_child(box)
+        view.set_content(scroll)
+        group = Adw.PreferencesGroup(title='Pasta compartilhada',
+                                     description='Disponível no Explorador do Windows durante a sessão.')
         box.append(group)
         self.name = Adw.EntryRow(title='Nome no Windows', text=share.get('name', ''))
         self.path = Adw.EntryRow(title='Pasta no Linux', text=share.get('path', ''))
@@ -157,7 +174,11 @@ class ShareEditor(Adw.Window):
         choose.connect('clicked', self.choose)
         self.path.add_suffix(choose)
         self.error = Gtk.Label(wrap=True, xalign=0)
+        self.error.set_selectable(True)
         self.error.add_css_class('error')
+        self.error.set_visible(False)
+        self.error.connect('notify::label', lambda widget, *_:
+                           widget.set_visible(bool(widget.get_text())))
         box.append(self.error)
 
     def choose(self, *_):

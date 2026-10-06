@@ -357,11 +357,113 @@ print('PASS GTK: responsive navigation/search/themes, profiles, stale credential
 '''
 
 
+GUI_V2_SCRIPT = r'''
+import sys, time
+from pathlib import Path
+from unittest.mock import patch
+sys.path.insert(0, sys.argv[1])
+import ajr_app as gui
+from ajr_app import Gtk, Gio, GLib, App, MainWindow
+
+def drain(duration=.15):
+    end = time.monotonic() + duration
+    while time.monotonic() < end:
+        while GLib.MainContext.default().pending() and time.monotonic() < end:
+            GLib.MainContext.default().iteration(False)
+        time.sleep(.005)
+
+def descendants(widget):
+    child = widget.get_first_child()
+    while child:
+        yield child
+        yield from descendants(child)
+        child = child.get_next_sibling()
+
+app = App()
+app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
+app.register(None)
+with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_monitors', return_value=[]), \
+        patch.object(gui.socket, 'create_connection', side_effect=OSError('isolated test')), \
+        patch.object(MainWindow, 'open_logs') as logs, patch.object(MainWindow, 'open_updates') as updates, \
+        patch.object(MainWindow, 'save_profile') as save:
+    win = MainWindow(app)
+    win.present()
+    win.profile_name.set_text('Uma conexão com um nome bastante longo ' * 4)
+    win.server.set_text('escritorio.example')
+    for width, height in [(1120, 820), (980, 760), (680, 760), (620, 480), (1120, 820)]:
+        win.set_default_size(width, height)
+        drain(.3)
+        assert (win.get_surface().get_width(), win.get_surface().get_height()) == (width, height), \
+            (width, height, win.get_surface().get_width(), win.get_surface().get_height())
+        ok, name = win.profile_name.compute_bounds(win)
+        ok_host, host = win.server.compute_bounds(win)
+        assert ok and ok_host
+        if width > 1040:
+            assert abs(name.get_y() - host.get_y()) < 1 and host.get_x() > name.get_x()
+        else:
+            assert host.get_y() > name.get_y() and abs(name.get_x() - host.get_x()) < 1
+        assert win.ui.split.get_collapsed() == (width <= 860)
+        if width == 620:
+            assert not win.ui.compact_profiles.get_visible()
+            win.ui.sidebar_toggle.set_active(True)
+            assert win.ui.split.get_show_sidebar()
+            win.ui.sidebar_toggle.set_active(False)
+        for page in ('display', 'sharing', 'connection'):
+            win.ui.show_page(page)
+            drain()
+            adjustment = win.ui.page_scrolls[page].get_hadjustment()
+            assert adjustment.get_upper() <= adjustment.get_page_size() + 1
+    win.lookup_action('ui-logs').activate(None)
+    logs.assert_called_once()
+    win.lookup_action('ui-updates').activate(None)
+    updates.assert_called_once()
+    with patch.object(win, 'do_connect') as connect:
+        win.password.emit('activate')
+        connect.assert_called_once()
+    win.ui.save_button.emit('clicked')
+    save.assert_called_once()
+    assert win.ui.empty_share_state.get_visible() and not win.share_list.get_visible()
+    with patch.object(win, 'edit_share') as edit:
+        win.ui.empty_share_state.get_last_child().emit('clicked')
+        edit.assert_called_once_with()
+    win.cfg['shares'] = [dict(name='Equipe', path=str(Path.home() / 'Projetos'))]
+    win.render_shares()
+    assert not win.ui.empty_share_state.get_visible() and win.share_list.get_visible()
+    row = win.share_list.get_first_child()
+    assert 'Windows: Equipe' in row.get_subtitle() and row.get_title() == 'Projetos'
+    menu = next(child for child in descendants(row) if isinstance(child, Gtk.MenuButton))
+    actions = menu.get_popover().get_child()
+    with patch.object(win, 'edit_share') as edit:
+        actions.get_first_child().emit('clicked')
+        edit.assert_called_once_with(0)
+    actions.get_last_child().emit('clicked')
+    assert not win.cfg['shares'] and win.ui.empty_share_state.get_visible()
+    win.cfg['keyboard_shortcuts'] = [dict(accelerator='<Super>d', remote=False)]
+    win.render_keyboard_rules()
+    rule = win.keyboard_rules.get_first_child()
+    assert rule.get_subtitle() == 'Destino: Este computador'
+    rule.set_active(True)
+    assert rule.get_subtitle() == 'Destino: Windows' and win.cfg['keyboard_shortcuts'][0]['remote']
+    win.form.set_sensitive(False)
+    assert not win.ui.save_button.get_visible() and not win.ui.profile_area.get_sensitive()
+    win.finish_connection()
+    assert win.ui.save_button.get_visible() and not win.controls.get_visible()
+    win.show_error('Erro de teste')
+    assert win.get_focus() == win.error
+    win.close()
+    drain()
+print('PASS V2: adaptive fields, long titles, minimum size, menu, password Enter, save, folders and rule destinations')
+'''
+
+
 class GtkPreferencesTests(unittest.TestCase):
     def test_preferences_on_private_display(self):
         self.run_gui_script(GUI_SCRIPT)
 
-    def run_gui_script(self, script, timeout=20):
+    def test_v2_presentation_on_private_display(self):
+        self.run_gui_script(GUI_V2_SCRIPT, screen='1600x1200x24')
+
+    def run_gui_script(self, script, timeout=20, screen='1024x900x24'):
         sdk = BASE / 'tests/tools/sdk'
         xvfb = shutil.which('Xvfb') or sdk / 'usr/bin/Xvfb'
         if not Path(xvfb).exists():
@@ -372,7 +474,7 @@ class GtkPreferencesTests(unittest.TestCase):
         env = dict(os.environ, GDK_BACKEND='x11', GSK_RENDERER='cairo',
                    GSETTINGS_BACKEND='memory', DBUS_SESSION_BUS_ADDRESS='unix:path=/nonexistent',
                    LD_LIBRARY_PATH=str(sdk / 'usr/lib/x86_64-linux-gnu'))
-        server = subprocess.Popen([str(xvfb), '-displayfd', '1', '-screen', '0', '1024x900x24',
+        server = subprocess.Popen([str(xvfb), '-displayfd', '1', '-screen', '0', screen,
             '-nolisten', 'tcp', '-noreset'], env=env, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True)
         try:

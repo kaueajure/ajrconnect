@@ -3,25 +3,28 @@ from pathlib import Path
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
-from gi.repository import Gtk, Adw, Pango
+from gi.repository import Gtk, Adw, Pango, Gio, GObject
 from dialogs import ShortcutEditor
+from keyboard import shortcut_parts
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
 
 PALETTES = {
-    'dark': dict(window='#111219', surface='#191a24', sidebar='#15161e',
-                 raised='#222330', text='#f3f2fa', muted='#aaaabd', border='#353648',
-                 accent='#a99aff', button='#8974ed', on_button='#11101c',
-                 selection='#302941', success='#85dbb4', danger='#ffabae', control='#666276'),
-    'light': dict(window='#f4f3f8', surface='#ffffff', sidebar='#ebe9f2',
-                  raised='#f0eef7', text='#242236', muted='#656178', border='#d3cedf',
-                  accent='#5d43bf', button='#694acb', on_button='#ffffff',
-                  selection='#e1d9fa', success='#217248', danger='#b22c41', control='#847e94'),
+    'dark': dict(window='#111216', surface='#1b1c21', sidebar='#15161a',
+                 raised='#222329', text='#f4f4f5', muted='#a2a4ac', border='#2b2d34',
+                 accent='#a697ff', button='#7561d7', on_button='#ffffff',
+                 selection='#2a2638', success='#60c995', danger='#ee777d', control='#686b76'),
+    'light': dict(window='#f6f6f7', surface='#ffffff', sidebar='#f1f1f3',
+                  raised='#f4f4f5', text='#222226', muted='#686870', border='#dedee3',
+                  accent='#6854d9', button='#6854d9', on_button='#ffffff',
+                  selection='#eeeafe', success='#27875a', danger='#c63b4c', control='#85858e'),
 }
 
 
 def label(text, css=None, wrap=False):
     widget = Gtk.Label(label=text, xalign=0, wrap=wrap)
+    if wrap:
+        widget.set_wrap_mode(Pango.WrapMode.WORD_CHAR)
     if css:
         widget.add_css_class(css)
     return widget
@@ -42,7 +45,6 @@ def button(text, callback, icon=None, css=None):
 
 def section(title, description=None):
     box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
-    box.add_css_class('ajr-section')
     headings = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
     headings.append(label(title, 'ajr-section-title'))
     if description:
@@ -72,7 +74,7 @@ class StatusCard(Gtk.Box):
         self.icon = Gtk.Image(icon_name='network-server-symbolic')
         self.append(self.icon)
         text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3, hexpand=True)
-        self.title = label('Configure sua conexão', 'ajr-status-title')
+        self.title = label('Configure sua conexão', 'ajr-status-title', wrap=True)
         self.subtitle = label('Informe o servidor para começar.', 'ajr-muted', wrap=True)
         text.append(self.title)
         text.append(self.subtitle)
@@ -110,12 +112,19 @@ class DesktopView:
         self.theme_button = Gtk.Button(tooltip_text='Alternar tema claro e escuro')
         self.theme_button.connect('clicked', self.toggle_theme)
         header.pack_end(self.theme_button)
-        logs = Gtk.Button(icon_name='text-x-generic-symbolic', tooltip_text='Abrir registros da conexão')
-        logs.connect('clicked', lambda *_: w.open_logs())
-        header.pack_end(logs)
+        menu = Gio.Menu()
+        for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
+                                       ('updates', 'Atualizações', w.open_updates)]:
+            action = Gio.SimpleAction.new('ui-' + name, None)
+            action.connect('activate', lambda _a, _p, cb=callback: cb())
+            w.add_action(action)
+            menu.append(title, 'win.ui-' + name)
+        header.pack_end(Gtk.MenuButton(icon_name='view-more-symbolic', menu_model=menu,
+                                       tooltip_text='Mais opções'))
         self.updates_button = Gtk.Button(icon_name='software-update-available-symbolic',
                                          tooltip_text='Atualizações do aplicativo')
         self.updates_button.connect('clicked', lambda *_: w.open_updates())
+        self.updates_button.set_visible(False)
         header.pack_end(self.updates_button)
         w.integration_banner = Adw.Banner(title='')
         shell.add_top_bar(w.integration_banner)
@@ -130,13 +139,39 @@ class DesktopView:
                            self.sidebar_toggle.set_active(self.split.get_show_sidebar()))
         self.split.set_sidebar(self.build_sidebar())
         self.split.set_content(self.build_workspace())
+        fields_breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 1040px'))
+        for row in self.field_rows:
+            fields_breakpoint.add_setter(row, 'orientation', Gtk.Orientation.VERTICAL)
+        w.add_breakpoint(fields_breakpoint)
         breakpoint = Adw.Breakpoint.new(Adw.BreakpointCondition.parse('max-width: 860px'))
+        # Only the last matching window breakpoint applies, so compact mode
+        # must include the field layout as well as the sidebar setters.
+        for row in self.field_rows:
+            breakpoint.add_setter(row, 'orientation', Gtk.Orientation.VERTICAL)
         breakpoint.add_setter(self.split, 'collapsed', True)
         breakpoint.add_setter(self.sidebar_toggle, 'visible', True)
         breakpoint.add_setter(self.compact_profiles, 'visible', True)
         self.sidebar_toggle.set_visible(False)
         self.compact_profiles.set_visible(False)
         w.add_breakpoint(breakpoint)
+        short = Adw.Breakpoint.new(Adw.BreakpointCondition.parse(
+            'max-width: 860px and max-height: 560px'))
+        for row in self.field_rows:
+            short.add_setter(row, 'orientation', Gtk.Orientation.VERTICAL)
+        short.add_setter(self.split, 'collapsed', True)
+        short.add_setter(self.sidebar_toggle, 'visible', True)
+        # The sidebar remains the profile picker in short windows. Avoid
+        # repeating its dropdown above the selected connection's heading.
+        short.add_setter(self.compact_profiles, 'visible', False)
+        short.add_setter(self.navigation, 'css-classes', GObject.Value(
+            GObject.TYPE_STRV, ['ajr-navigation', 'ajr-short-navigation']))
+        short.add_setter(self.navigation, 'spacing', 8)
+        for content in self.page_contents:
+            short.add_setter(content, 'css-classes', GObject.Value(
+                GObject.TYPE_STRV, ['ajr-workspace', 'ajr-short-workspace']))
+        short.add_setter(self.empty_share_icon, 'visible', False)
+        short.add_setter(self.sharing_box, 'spacing', 16)
+        w.add_breakpoint(short)
         self.update_theme()
         w.form.connect('notify::sensitive', lambda *_:
                        self.profile_area.set_sensitive(w.form.get_sensitive()))
@@ -144,8 +179,6 @@ class DesktopView:
                        self.compact_profiles.set_sensitive(w.form.get_sensitive()))
         for field in (w.profile_name, w.server, w.user):
             field.connect('changed', lambda *_: self.update_summary())
-        w.monitor.connect('notify::selected', lambda *_: self.update_summary())
-        w.fullscreen.connect('notify::active', lambda *_: self.update_summary())
 
     def dispose(self, *_):
         self.manager.disconnect(self.theme_signal)
@@ -162,6 +195,7 @@ class DesktopView:
         self.owner.persist()
 
     def update_available(self, available):
+        self.updates_button.set_visible(available)
         if available:
             self.updates_button.add_css_class('suggested-action')
         else:
@@ -186,31 +220,22 @@ class DesktopView:
 
     def build_sidebar(self):
         w = self.owner
-        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        sidebar = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         sidebar.add_css_class('ajr-sidebar')
-        brand = Gtk.Box(spacing=12)
-        mark = Gtk.Image.new_from_file(str(ASSETS / 'ajr-connect.svg'))
-        mark.set_pixel_size(42)
-        brand.append(mark)
-        words = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, valign=Gtk.Align.CENTER)
-        words.append(label('AJR', 'ajr-brand-title'))
-        words.append(label('C O N N E C T', 'ajr-brand-subtitle'))
-        brand.append(words)
-        sidebar.append(brand)
+        sidebar.append(label('Conexões', 'ajr-section-title'))
         self.profile_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16, vexpand=True)
         sidebar.append(self.profile_area)
-        self.profile_area.append(button('Nova conexão', w.new_profile, 'list-add-symbolic', 'ajr-new'))
         caption = Gtk.Box(spacing=8)
-        caption.append(label('SUAS CONEXÕES', 'ajr-eyebrow'))
+        caption.append(label('Conexões salvas', 'ajr-field-hint'))
         self.profile_count = Gtk.Label(label='0', css_classes=['ajr-count'])
         caption.append(self.profile_count)
-        self.profile_area.append(caption)
         self.search = Gtk.SearchEntry(placeholder_text='Buscar conexão')
         self.search.add_css_class('ajr-search')
         self.search.connect('search-changed', lambda *_: self.render_profiles())
         self.profile_area.append(self.search)
-        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True,
-                                   min_content_height=120)
+        self.profile_area.append(button('Nova conexão', w.new_profile, 'list-add-symbolic', 'ajr-secondary'))
+        self.profile_area.append(caption)
+        scroll = Gtk.ScrolledWindow(hscrollbar_policy=Gtk.PolicyType.NEVER, vexpand=True)
         self.profile_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
         self.profile_list.add_css_class('ajr-profiles')
         self.profile_list.connect('row-selected', self.profile_selected)
@@ -275,25 +300,18 @@ class DesktopView:
         # scrolling page. Changing page content never changes this bar's height.
         navigation_clamp = Adw.Clamp(maximum_size=840, tightening_threshold=720)
         navigation = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.navigation = navigation
         navigation.add_css_class('ajr-navigation')
         navigation_clamp.set_child(navigation)
         view.add_top_bar(navigation_clamp)
 
-        hero = Gtk.Box(spacing=24)
-        self.hero = hero
-        hero.add_css_class('ajr-hero')
-        visual = Gtk.Image.new_from_file(str(ASSETS / 'workspace.svg'))
-        visual.set_pixel_size(96)
-        hero.append(visual)
-        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9, hexpand=True,
-                          valign=Gtk.Align.CENTER)
-        self.connection_title = label('Nova conexão', 'ajr-hero-title', wrap=True)
+        details = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4, hexpand=True)
+        self.connection_title = label('Nova conexão', 'ajr-connection-title')
+        self.connection_title.set_ellipsize(Pango.EllipsizeMode.END)
         details.append(self.connection_title)
-        self.connection_meta = label('Servidor não informado.', 'ajr-muted', wrap=True)
+        self.connection_meta = label('Servidor não informado.', 'ajr-muted')
+        self.connection_meta.set_ellipsize(Pango.EllipsizeMode.END)
         details.append(self.connection_meta)
-        self.share_summary = label('Nenhuma pasta compartilhada', 'ajr-field-hint', wrap=True)
-        details.append(self.share_summary)
-        hero.append(details)
 
         self.compact_profiles = Gtk.Box(spacing=12)
         self.compact_profiles.append(label('Conexão salva', 'ajr-field-label'))
@@ -302,18 +320,17 @@ class DesktopView:
         self.compact_profiles.append(w.profile)
         self.compact_profiles.append(button('Nova', w.new_profile, 'list-add-symbolic'))
         navigation.append(self.compact_profiles)
+        navigation.append(details)
 
-        tabs = Gtk.Box(spacing=4, homogeneous=True)
+        tabs = Gtk.Box(spacing=16)
         tabs.add_css_class('ajr-tabs')
         w.form = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE,
                            transition_duration=140, vhomogeneous=False, vexpand=True)
         self.tab_buttons = {}
-        for key, title, icon in [('connection', 'Conexão', 'network-server-symbolic'),
-                                  ('display', 'Tela e teclado', 'video-display-symbolic'),
-                                  ('sharing', 'Compartilhamento', 'folder-symbolic')]:
+        for key, title in [('connection', 'Conexão'), ('display', 'Tela e teclado'),
+                            ('sharing', 'Compartilhamento')]:
             tab = Gtk.ToggleButton()
             tab_box = Gtk.Box(spacing=8, halign=Gtk.Align.CENTER)
-            tab_box.append(Gtk.Image(icon_name=icon))
             tab_box.append(Gtk.Label(label=title))
             tab.set_child(tab_box)
             tab.add_css_class('ajr-tab')
@@ -324,6 +341,7 @@ class DesktopView:
         navigation.append(tabs)
         view.set_content(w.form)
         self.page_scrolls = {}
+        self.page_contents = []
         pages = [('connection', self.build_connection()),
                  ('display', self.build_display()),
                  ('sharing', self.build_sharing())]
@@ -333,9 +351,8 @@ class DesktopView:
             scroll.set_child(clamp)
             content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=20)
             content.add_css_class('ajr-workspace')
+            self.page_contents.append(content)
             clamp.set_child(content)
-            if name == 'connection':
-                content.append(hero)
             content.append(body)
             self.page_scrolls[name] = scroll
             w.form.add_named(scroll, name)
@@ -350,27 +367,35 @@ class DesktopView:
 
         footer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         footer.add_css_class('ajr-footer')
-        footer.append(w.controls)
         w.error = label('', 'ajr-error', wrap=True)
+        # Gtk.Label's focus implementation requires selection (or links),
+        # even when focusable is set. Allow copying errors and focus them.
+        w.error.set_selectable(True)
         w.error.set_focusable(True)
         w.error.set_visible(False)
         footer.append(w.error)
         w.status = StatusCard()
+        w.status.set_hexpand(True)
         w.status_icon = w.status.icon
-        footer.append(w.status)
-        row = Gtk.Box(spacing=16)
-        self.monitor_summary = label('Selecione um monitor em Tela e teclado.', 'ajr-field-hint', wrap=True)
-        self.monitor_summary.set_hexpand(True)
-        row.append(self.monitor_summary)
+        row = Gtk.Box(spacing=12)
+        row.append(w.status)
         self.spinner = Gtk.Spinner()
         self.spinner.set_visible(False)
         row.append(self.spinner)
-        w.connect_btn = Gtk.Button(label='Conectar ao Windows', height_request=46, width_request=210)
+        self.save_button = button('Salvar', w.save_profile, css='ajr-secondary')
+        row.append(self.save_button)
+        w.form.connect('notify::sensitive', lambda *_:
+                       self.save_button.set_sensitive(w.form.get_sensitive()))
+        w.form.connect('notify::sensitive', lambda *_:
+                       self.save_button.set_visible(w.form.get_sensitive()))
+        w.connect_btn = Gtk.Button(label='Conectar ao Windows', height_request=44,
+                                   valign=Gtk.Align.CENTER)
         w.connect_btn.add_css_class('suggested-action')
         w.connect_btn.add_css_class('ajr-connect')
         w.connect_btn.connect('clicked', lambda *_: w.do_connect())
         row.append(w.connect_btn)
         footer.append(row)
+        footer.append(w.controls)
         view.add_bottom_bar(footer)
         return view
 
@@ -386,9 +411,11 @@ class DesktopView:
 
     def build_connection(self):
         w = self.owner
-        box = section('Dados de acesso')
-        headings = box.get_first_child()
-        box.remove(headings)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        access = section('Dados de acesso')
+        box.append(access)
+        headings = access.get_first_child()
+        access.remove(headings)
         top = Gtk.Box(spacing=12)
         headings.set_hexpand(True)
         top.append(headings)
@@ -397,8 +424,7 @@ class DesktopView:
         w.profile_delete.add_css_class('ajr-delete')
         w.profile_delete.connect('clicked', w.delete_profile)
         top.append(w.profile_delete)
-        top.append(button('Salvar conexão', w.save_profile, 'document-save-symbolic', 'ajr-secondary'))
-        box.append(top)
+        access.append(top)
         identity = Gtk.Box(spacing=16, homogeneous=True)
         field, w.profile_name = entry_field('Nome da conexão')
         w.profile_name.set_placeholder_text('Ex.: Meu escritório')
@@ -406,16 +432,17 @@ class DesktopView:
         field, w.server = entry_field('Servidor', w.cfg['server'])
         w.server.set_placeholder_text('IP ou domínio:porta')
         identity.append(field)
-        box.append(identity)
+        access.append(identity)
         credentials = Gtk.Box(spacing=16, homogeneous=True)
         field, w.user = entry_field('Usuário', w.cfg['user'])
         credentials.append(field)
         field, w.password = entry_field('Senha', password=True)
         credentials.append(field)
-        box.append(credentials)
+        access.append(credentials)
+        self.field_rows = [identity, credentials]
         w.remember = Adw.SwitchRow(title='Lembrar senha', subtitle='Guardada no chaveiro deste computador.',
                                    active=w.cfg['remember'])
-        remember = Adw.PreferencesGroup()
+        remember = Adw.PreferencesGroup(title='Preferências')
         remember.add(w.remember)
         w.auto_reconnect = Adw.SwitchRow(title='Reconectar automaticamente',
             subtitle='Em quedas de rede, tenta recuperar a conexão até 5 vezes.', active=w.cfg['auto_reconnect'])
@@ -448,7 +475,8 @@ class DesktopView:
         w.quality = Adw.ComboRow(title='Qualidade da imagem',
             model=Gtk.StringList.new(['Equilibrada', 'Mais qualidade', 'Mais leve']), selected=w.cfg['quality'])
         display.add(w.quality)
-        keyboard = Adw.PreferencesGroup(title='Prioridade dos atalhos')
+        keyboard = Adw.PreferencesGroup(title='Atalhos',
+            description='Ativado: Windows · Desativado: este computador')
         box.append(keyboard)
         w.keyboard_mode = Adw.ComboRow(title='Encaminhar atalhos ao Windows',
             model=Gtk.StringList.new(['Somente em tela cheia', 'Também em modo janela', 'Manter atalhos neste computador']),
@@ -461,10 +489,10 @@ class DesktopView:
             row = Adw.SwitchRow(title=title, subtitle=subtitle, active=w.cfg[key])
             keyboard.add(row)
             w.keyboard_rows[key] = row
-        w.keyboard_note = Adw.ActionRow(title='Ativado: Windows · Desativado: este computador', subtitle_lines=0)
-        keyboard.add(w.keyboard_note)
-        rules = Adw.PreferencesGroup(title='Outras combinações',
-            description='Defina a prioridade de áreas de trabalho, atalhos do sistema e combinações personalizadas.')
+        w.keyboard_note = label('', 'ajr-field-hint', wrap=True)
+        box.append(w.keyboard_note)
+        rules = Adw.PreferencesGroup(title='Atalhos personalizados',
+            description='Escolha onde executar cada combinação.')
         box.append(rules)
         w.keyboard_rules = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         w.keyboard_rules.add_css_class('boxed-list')
@@ -476,19 +504,44 @@ class DesktopView:
         w.keyboard_mode.connect('notify::selected', lambda *_: w.update_keyboard_options())
         return box
 
+    def keyboard_rule_row(self, rule, on_target, on_edit, on_remove):
+        row = Adw.SwitchRow(title=Gtk.accelerator_get_label(
+            *shortcut_parts(rule['accelerator'], routing=True)), active=rule['remote'])
+        row.set_use_markup(False)
+        def update_target(widget, *_):
+            destination = 'Windows' if widget.get_active() else 'Este computador'
+            widget.set_subtitle('Destino: ' + destination)
+            widget.update_property([Gtk.AccessibleProperty.LABEL],
+                                   [widget.get_title() + ': ' + destination])
+        update_target(row)
+        row.connect('notify::active', update_target)
+        row.connect('notify::active', lambda widget, *_: on_target(widget.get_active()))
+        for icon, tooltip, callback in [('document-edit-symbolic', 'Editar atalho', on_edit),
+                                         ('user-trash-symbolic', 'Remover atalho', on_remove)]:
+            control = Gtk.Button(icon_name=icon, tooltip_text=tooltip, valign=Gtk.Align.CENTER)
+            control.add_css_class('flat')
+            control.connect('clicked', lambda _b, cb=callback: cb())
+            row.add_suffix(control)
+        return row
+
     def build_sharing(self):
         w = self.owner
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=24)
+        self.sharing_box = box
         w.share_group = Adw.PreferencesGroup(title='Pastas compartilhadas',
             description='As pastas aparecem em Este Computador no Windows durante a sessão.')
         box.append(w.share_group)
         w.share_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         w.share_list.add_css_class('boxed-list')
         w.share_group.add(w.share_list)
-        add = button('Adicionar pasta', lambda *_: w.edit_share(), 'list-add-symbolic', 'ajr-secondary')
-        add.set_margin_top(12)
-        w.share_group.add(add)
-        options = Adw.PreferencesGroup()
+        self.empty_share_state = self.empty_shares()
+        w.share_group.add(self.empty_share_state)
+        self.add_share_button = button('Adicionar pasta', lambda *_: w.edit_share(),
+                                       'list-add-symbolic', 'ajr-secondary')
+        self.add_share_button.set_margin_top(12)
+        self.add_share_button.set_halign(Gtk.Align.START)
+        w.share_group.add(self.add_share_button)
+        options = Adw.PreferencesGroup(title='Área de transferência')
         w.clipboard = Adw.SwitchRow(title='Compartilhar área de transferência',
                                   subtitle='Copie e cole entre este computador e o Windows.', active=w.cfg['clipboard'])
         options.add(w.clipboard)
@@ -499,15 +552,47 @@ class DesktopView:
         return box
 
     def empty_shares(self):
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         for side in ('top', 'bottom', 'start', 'end'):
-            getattr(box, f'set_margin_{side}')(28)
+            getattr(box, f'set_margin_{side}')(16)
         icon = Gtk.Image(icon_name='folder-open-symbolic', pixel_size=40)
-        icon.add_css_class('accent')
+        self.empty_share_icon = icon
+        icon.add_css_class('ajr-muted')
         box.append(icon)
         title = Gtk.Label(label='Nenhuma pasta compartilhada', css_classes=['ajr-section-title'])
         box.append(title)
+        box.append(Gtk.Label(label='Compartilhe uma pasta do Linux para acessá-la\ndurante a sessão Windows.',
+                             wrap=True, justify=Gtk.Justification.CENTER, css_classes=['ajr-muted']))
+        add = button('Adicionar pasta', lambda *_: self.owner.edit_share(),
+                      'list-add-symbolic', 'ajr-secondary')
+        add.set_halign(Gtk.Align.CENTER)
+        add.set_margin_top(8)
+        box.append(add)
         return box
+
+    def share_row(self, share, on_edit, on_remove):
+        path = Path(share['path'])
+        row = Adw.ActionRow(title=path.name or share['name'],
+                            subtitle=share['path'] + '\nWindows: ' + share['name'],
+                            title_lines=1, subtitle_lines=0, use_markup=False)
+        row.set_tooltip_text(share['path'])
+        row.add_prefix(Gtk.Image(icon_name='folder-symbolic'))
+        popover = Gtk.Popover()
+        actions = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        popover.set_child(actions)
+        for title, icon, callback in [('Editar pasta', 'document-edit-symbolic', on_edit),
+                                      ('Remover pasta', 'user-trash-symbolic', on_remove)]:
+            def activate(_button, cb=callback):
+                popover.popdown()
+                cb()
+            action = button(title, activate, icon, 'flat')
+            if title == 'Remover pasta':
+                action.add_css_class('ajr-delete')
+            actions.append(action)
+        row.add_suffix(Gtk.MenuButton(icon_name='view-more-symbolic', popover=popover,
+                                       tooltip_text='Opções da pasta ' + share['name'],
+                                       valign=Gtk.Align.CENTER))
+        return row
 
     def update_summary(self):
         w = self.owner
@@ -516,28 +601,25 @@ class DesktopView:
         profile = next((p for p in w.cfg['profiles'] if p['id'] == w.cfg['active_profile']), None)
         self.connection_title.set_text(w.profile_name.get_text().strip() or
                                       (profile['name'] if profile else 'Nova conexão'))
+        self.connection_title.set_tooltip_text(self.connection_title.get_text())
         server, user = w.server.get_text().strip(), w.user.get_text().strip()
-        self.connection_meta.set_text(f'{user} em {server}' if server and user else
+        self.connection_meta.set_text(f'{server} · {user}' if server and user else
                                       server or 'Servidor não informado.')
-        count = len(w.cfg['shares'])
-        self.share_summary.set_text(f'{count} pasta' + ('s compartilhadas' if count != 1 else ' compartilhada')
-                                    if count else 'Nenhuma pasta compartilhada')
-        index = w.monitor.get_selected()
-        if index < len(getattr(w, 'monitors', [])):
-            monitor = w.monitors[index]
-            mode = 'Tela cheia' if w.fullscreen.get_active() else 'Modo janela'
-            self.monitor_summary.set_text(f"{monitor['connector']} · {monitor['width']} × {monitor['height']}\n{mode}")
-        else:
-            self.monitor_summary.set_text('Selecione um monitor em Tela e teclado.')
+        self.connection_meta.set_tooltip_text(self.connection_meta.get_text())
 
     def update_status(self, title, icon):
         busy = title.startswith(('Conectando', 'Aguardando', 'Reconectando'))
+        if busy:
+            self.owner.connect_btn.remove_css_class('suggested-action')
         self.spinner.set_visible(busy)
         self.spinner.set_spinning(busy)
         online = icon == 'network-transmit-receive-symbolic'
         for css in ('ajr-online', 'ajr-offline'):
             self.owner.status.remove_css_class(css)
         self.owner.status.add_css_class('ajr-online' if online else 'ajr-offline')
+        if title.startswith('Conectado'):
+            name = self.owner.profile_name.get_text().strip() or self.owner.cfg['server']
+            self.owner.status.set_title('Conectado a ' + name)
 
     def integration_changed(self, ready):
         self.integration_label.set_text('AJR Bar conectada' if ready else 'Controles no aplicativo')

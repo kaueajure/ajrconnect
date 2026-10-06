@@ -28,121 +28,73 @@ a AJR Bar; atualizações rotineiras da barra são aplicadas na sessão atual.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — versão de teste
+    return f'''# AJR Connect {TAG.removeprefix('v')} — interface V2
 
-Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado
-e AJR Bar para controlar sessões Windows no GNOME 46.
+Cliente RDP para Linux com GTK4/libadwaita e AJR Bar. Esta publicação continua
+no canal de versões de teste, para Linux x86_64 e FreeRDP/WinPR 2.11.5.
 
-## Mudanças desta versão
+## Mudanças
 
-- Atualização pelo próprio aplicativo: consulta de versões, aviso ao abrir,
-  download com progresso e cancelamento, verificação SHA256 e reinício ao concluir.
-  O instalador preserva configurações e usa backup para recuperar falhas.
-- Reconexão automática por conexão: até cinco tentativas após falhas de rede,
-  espera visível no rodapé e cancelamento. Senhas são reutilizadas somente em
-  memória; logoff, erros de autenticação e desconexões voluntárias não repetem.
-- Navegação e controles fixos, com rolagem independente em cada área e textos
-  limitados às configurações e aos estados do aplicativo.
-- Regras de teclado adicionais por conexão, com gravação, entrada manual,
-  sugestões e escolha do destino Windows ou computador local.
-- Interface reformulada com identidade própria em grafite e violeta, temas claro
-  e escuro com preferência persistente e conexões salvas com busca na barra lateral.
-- Conexão, tela/teclado e compartilhamento têm áreas separadas. Em janelas menores,
-  a lista de conexões passa para um painel lateral. O botão de conectar e o estado
-  do servidor permanecem visíveis durante a navegação.
-- A apresentação, os diálogos e os estilos foram separados do controlador de
-  perfis e sessões. A seleção de perfil fica bloqueada enquanto uma conexão
-  está em andamento; a verificação do servidor aguarda uma pausa na digitação.
+- Interface V2 com superfícies neutras e violeta como accent, em temas claro
+  e escuro. Hero ilustrado removido, sidebar simplificada e navegação leve.
+- Dados de acesso em duas colunas na janela ampla e empilhados nas menores.
+  Preferências separadas e rodapé compacto com Salvar e Conectar.
+- Controles de tela cheia, modo janela, minimizar e desconectar contextuais.
+  Reconexão mantém próxima tentativa, spinner e cancelamento.
+- Tela e teclado com grupos de tela, atalhos e regras personalizadas;
+  cada regra identifica seu destino e permite editar ou remover.
+- Compartilhamento com ação no estado vazio, caminho Linux e nome no Windows,
+  menu por pasta e grupo próprio de área de transferência.
+- Diálogos de atalho, pasta e atualização alinhados à V2, com rolagem e ações
+  acessíveis em janelas menores. Mensagens de erro recebem foco e podem ser copiadas.
+- Atualização pelo aplicativo e reconexão automática, antes presentes nos
+  fontes de desenvolvimento, agora incluídas no download publicado.
 
-## Recursos preservados
+## Atualizar
 
-- O botão de pasta abre diretamente o seletor GTK, permitindo navegar pelos
-  diretórios locais sem depender do portal de arquivos. Pastas de rede precisam
-  estar montadas como diretórios locais antes de serem compartilhadas.
-- Várias conexões podem ser salvas com nome, servidor, usuário e preferências
-  próprias. A configuração anterior é migrada automaticamente. Senhas lembradas
-  ficam no chaveiro e são identificadas por servidor e usuário; não entram no JSON.
-- O atalho de tela cheia pode ser alterado em **Tela e teclado**. A combinação
-  inicial continua sendo Ctrl+Alt+Enter.
-- A captura de teclado pode valer somente em tela cheia, também em janela ou
-  permanecer no computador local. Alt+Tab, Windows/Super sozinha e Alt+F4 têm
-  prioridades individuais; essa combinação exige AJR Bar ativa no GNOME 46.
-  Combinações sem regra seguem a captura geral do teclado.
-- A AJR Bar usa uma ponte fixa e módulos recarregáveis para aplicar atualizações
-  na sessão atual. A primeira instalação, a migração da extensão antiga e
-  mudanças excepcionais na ponte ainda podem exigir um novo login. O instalador
-  não encerra conexões RDP abertas; reabra o aplicativo e reconecte para carregar
-  a nova interface e o novo cliente.
-- A restauração de backups com a ponte recarregável também funciona na sessão
-  atual. Falhas ao carregar a nova barra preservam ou tentam restaurar a anterior.
+Em versões com atualização integrada, abra **Mais opções → Atualizações**,
+ative **Incluir versões de teste**, escolha **Verificar atualizações** e
+**Baixar e atualizar**. Encerre a conexão RDP antes de instalar e escolha
+**Reiniciar aplicativo** ao concluir.
 
-## Instalação sem bloqueio de ambiente
-
-O instalador não exige uma distribuição, versão do GNOME, X11, Wayland
-ou sessão gráfica ativa específicos. Verifica a arquitetura e as dependências
-necessárias para executar o cliente. O pacote compilado é Linux x86_64,
-com GTK4/libadwaita, PyGObject, X11 e FreeRDP/WinPR 2.11.5.
-
-A instalação automática usa APT, aceita pacotes RDP com ou sem `t64` e usa as
-listas de pacotes existentes, sem executar `apt-get update`.
-Sem APT, a instalação segue quando as dependências estão disponíveis;
-se faltarem, orienta a instalá-las com o gerenciador da distribuição.
-
-A AJR Bar é opcional para GNOME 46. Em outros desktops, use os controles
-na janela do aplicativo e o atalho configurado de tela cheia. A instalação e a restauração
-preservam extensões e autostart existentes quando essa integração não é aplicada.
-
-## Recursos
-
-- Seleção de monitor e abertura em janela ou fullscreen.
-- Atalho personalizável para fullscreen no monitor selecionado.
-- Captura de teclado configurável para Windows ou computador local.
-- AJR Bar no topo central: minimizar, sair de fullscreen e desconectar.
-- Compartilhamento de pastas e área de transferência.
-- Instalação por usuário, atalho no menu, backup e restauração.
-- Instalação automática das dependências ausentes pelo APT, com sudo somente nessa etapa.
-- Novas instalações começam sem servidor, usuário ou pastas preenchidos.
-
-O perfil usa renderização por software e não ativa `/gfx`, `/gdi:hw`
-ou a floatbar visual nativa do FreeRDP.
-
-## Estado da validação
-
-Esta é uma versão de teste. A instalação em um Zorin recém-instalado ainda
-não foi validada. Foram aprovados 69 testes automatizados, incluindo perfis,
-busca e navegação responsiva, temas, seletor de pastas, gravação do atalho, atualização da integração, preservação
-de configurações e instalação/restauração em diretórios de usuário temporários.
-Os fluxos novos de atualização e reconexão foram exercitados com downloads e
-quedas simulados, incluindo cancelamento, erros de senha, limite de tentativas,
-integridade do pacote e recuperação após falha de escrita. A reconexão automática
-ainda precisa ser validada contra um servidor Windows real.
-O teste nativo de teclado passou em Xvfb. Em uma sessão GNOME 46 isolada, a
-atualização real da barra, a restauração de módulos anteriores e a recuperação
-de falhas de importação/ativação passaram sem reiniciar o GNOME Shell.
-Os pacotes extraídos passaram na verificação de compatibilidade e o frontend
-foi recompilado usando o pacote de fontes.
-
-O cliente foi testado com uma VM real em dois monitores, incluindo a
-atualização da imagem durante fullscreen. A verificação do instalador não
-substitui um teste completo em outra instalação do sistema.
-
-Reconecte ao mudar resolução ou escala dos monitores. A AJR Bar é destinada
-ao GNOME 46. A primeira ativação ou a migração da extensão antiga pode exigir
-um novo login; atualizações rotineiras usam a ponte recarregável na sessão atual.
-
-## Baixar e instalar pelo terminal
+Em versões anteriores, ou para instalar pelo terminal:
 
 {download_commands(repository)}
+## Preservação e compatibilidade
+
+Perfis, credenciais no chaveiro, preferências, pastas e regras de teclado
+mantêm seus formatos e comportamentos. A apresentação permanece separada do
+controlador de sessão. O instalador cria backup e preserva configurações.
+Não altera o cliente RDP do sistema nem instala dependências visuais externas.
+
+O pacote requer GTK4/libadwaita, PyGObject, bibliotecas X11 e FreeRDP/WinPR
+2.11.5. Dependências ausentes são instaladas por APT quando disponível,
+sem atualizar automaticamente as listas de pacotes. Execute sem sudo;
+a senha de administrador é solicitada somente quando faltam dependências.
+A AJR Bar é opcional para GNOME 46; outros desktops usam os controles do cliente.
+
+## Validação
+
+- 70 testes automatizados aprovados, incluindo os 69 anteriores e a nova
+  regressão da interface V2.
+- Política de teclado nativa aprovada em um servidor X privado.
+- Integração, atualização e rollback da AJR Bar aprovados no GNOME 46 isolado.
+- 31 capturas de interface; temas, diálogos, pastas, erros e controles de sessão
+  revisados em 1120 × 820, 680 × 760 e 620 × 480.
+- Verificações de overflow horizontal, ações fixas, foco de erros e senha.
+
+A validação desta refatoração foi isolada, sem consultar credenciais do usuário
+ou abrir uma nova sessão RDP real. A instalação em um Zorin recém-instalado e
+reconexões contra um servidor Windows real ainda precisam de validação.
+
 ## Arquivos
 
 - `{ASSETS[0]}`: aplicativo, cliente compilado, extensão e instalador.
 - `{ASSETS[1]}`: fontes correspondentes, cabeçalhos e script de compilação.
-- `SHA256SUMS`: hashes para conferir os downloads.
+- `SHA256SUMS`: hashes SHA256 dos dois pacotes.
 
-Licença Apache 2.0; os avisos originais do FreeRDP são preservados.
-Relate falhas em https://github.com/{repository}/issues com o sistema,
-versões, monitor e passos para reproduzir. Não inclua senhas nem dados
-pessoais dos registros ou capturas.
+Licença Apache 2.0; avisos do FreeRDP preservados. Relate falhas em
+https://github.com/{repository}/issues, sem senhas ou dados pessoais.
 '''
 
 

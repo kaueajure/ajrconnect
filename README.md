@@ -3,21 +3,25 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar para controlar sessões Windows no GNOME 46.
 
-Versão de teste: **6.0.0-beta.6**. Inclui a nova interface, conexões salvas,
-seleção de pastas, atalhos personalizáveis e atualização da AJR Bar na sessão atual.
+Versão de teste: **6.0.0-beta.8**. Inclui a interface V2, atualização pelo
+aplicativo, reconexão automática, conexões salvas, seleção de pastas,
+atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
-Em desenvolvimento: **6.0.0-beta.7**, com atualização pelo aplicativo e
-reconexão automática. Esses recursos ainda não estão no download publicado.
+## Interface V2
 
-## Nova interface
-
-A interface tem
-identidade própria em grafite e violeta, temas claro/escuro, conexões com busca
+A interface usa superfícies neutras e violeta como accent, temas claro/escuro, conexões com busca
 na barra lateral e áreas separadas para conexão, tela/teclado e compartilhamento.
 O tema escolhido é preservado e vale para todas as conexões. Em janelas menores,
 a lista de conexões fica em um painel acessível pelo botão do cabeçalho.
+Os campos empilham em janelas menores, os controles de sessão aparecem quando
+necessários e o estado vazio de compartilhamento oferece a ação de adicionar pasta.
+
+Para atualizar a partir de uma versão com atualização integrada, abra
+**Mais opções → Atualizações**, mantenha **Incluir versões de teste** ativado
+e escolha **Verificar atualizações**. Depois de instalar, reinicie o aplicativo.
+Em versões anteriores, execute novamente o comando de instalação abaixo.
 
 A apresentação está em `implementacao/ui.py`, os editores de pasta e atalho em
 `implementacao/dialogs.py` e os estilos e ícones em `implementacao/assets/`.
@@ -86,12 +90,12 @@ campos vazios; configurações existentes são preservadas.
 
 - Ctrl+Alt+Enter é o atalho inicial de tela cheia. Em **Tela e teclado → Atalho
   de tela cheia → Alterar**, pressione a combinação desejada e salve.
-- Em **Prioridade dos atalhos**, escolha encaminhar atalhos ao Windows somente
+- Em **Atalhos**, escolha encaminhar atalhos ao Windows somente
   em tela cheia, também em janela ou manter os atalhos no computador local.
 - Ative ou desative individualmente **Alt+Tab**, **Windows/Super** (sozinha) e
   **Alt+F4**. Ativado executa no Windows; desativado executa no Linux.
   Essa combinação de prioridades exige a **AJR Bar atualizada e ativa no GNOME 46**.
-- Em **Tela e teclado → Outras combinações → Adicionar atalho**, escolha uma
+- Em **Tela e teclado → Atalhos personalizados → Adicionar atalho**, escolha uma
   sugestão ou informe qualquer combinação, por exemplo **Ctrl + Alt + Esquerda**,
   **Super + Ctrl + Direita** ou **Super + D**. Escolha **Este computador** ou
   **Windows**. Depois, use os botões da regra para editar ou remover o atalho.
@@ -129,7 +133,7 @@ disponíveis como diretórios locais antes de serem compartilhadas.
 
 ## Atualizações sem sair da sessão
 
-No aplicativo, clique no ícone **Atualizações** do cabeçalho. A janela mostra a
+No aplicativo, abra **Mais opções → Atualizações** no cabeçalho. A janela mostra a
 versão atual, procura versões publicadas e oferece **Baixar e atualizar**.
 O download tem progresso e pode ser cancelado. O pacote é conferido por SHA256
 antes de instalar, e uma falha de instalação tenta restaurar o backup anterior.

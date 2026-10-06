@@ -309,28 +309,19 @@ class MainWindow(Adw.ApplicationWindow):
             row.set_sensitive(active)
         self.keyboard_rules.set_sensitive(active)
         self.add_keyboard_rule.set_sensitive(active)
-        self.keyboard_note.set_subtitle(
+        self.keyboard_note.set_text(
             'Atalhos locais usam as configurações de teclado deste computador. Reconecte após alterar as regras.'
             if self._integration_ready else
             'Para misturar atalhos locais e remotos, ative a AJR Bar atualizada no GNOME. Sem ela, escolha todos no Windows ou todos locais.')
 
     def render_keyboard_rules(self):
-        from keyboard import shortcut_parts
         while (child := self.keyboard_rules.get_first_child()) is not None:
             self.keyboard_rules.remove(child)
         for index, rule in enumerate(self.cfg['keyboard_shortcuts']):
-            row = Adw.SwitchRow(title=Gtk.accelerator_get_label(
-                *shortcut_parts(rule['accelerator'], routing=True)), active=rule['remote'])
-            row.update_property([Gtk.AccessibleProperty.LABEL], [row.get_title() + ': executar no Windows'])
-            row.connect('notify::active', lambda widget, _prop, i=index: self.set_keyboard_target(i, widget.get_active()))
-            for icon, tooltip, callback in [
-                    ('document-edit-symbolic', 'Editar atalho', lambda _b, i=index: self.edit_keyboard_rule(i)),
-                    ('user-trash-symbolic', 'Remover atalho', lambda _b, i=index: self.remove_keyboard_rule(i))]:
-                control = Gtk.Button(icon_name=icon, tooltip_text=tooltip, valign=Gtk.Align.CENTER)
-                control.add_css_class('flat')
-                control.connect('clicked', callback)
-                row.add_suffix(control)
-            self.keyboard_rules.append(row)
+            self.keyboard_rules.append(self.ui.keyboard_rule_row(rule,
+                lambda remote, i=index: self.set_keyboard_target(i, remote),
+                lambda i=index: self.edit_keyboard_rule(i),
+                lambda i=index: self.remove_keyboard_rule(i)))
         self.keyboard_rules.set_visible(bool(self.cfg['keyboard_shortcuts']))
         self.update_keyboard_options()
 
@@ -362,19 +353,14 @@ class MainWindow(Adw.ApplicationWindow):
     def render_shares(self):
         while (child := self.share_list.get_first_child()) is not None:
             self.share_list.remove(child)
-        if not self.cfg['shares']:
-            self.share_list.append(self.ui.empty_shares())
+        populated = bool(self.cfg['shares'])
+        self.share_list.set_visible(populated)
+        self.ui.empty_share_state.set_visible(not populated)
+        self.ui.add_share_button.set_visible(populated)
         for i, share in enumerate(self.cfg['shares']):
-            row = Adw.ActionRow(title=share['name'], subtitle=share['path'], subtitle_lines=1)
-            row.add_prefix(Gtk.Image(icon_name='folder-symbolic'))
-            for icon, tooltip, callback in [
-                ('document-edit-symbolic', 'Editar pasta', lambda _b, index=i: self.edit_share(index)),
-                ('user-trash-symbolic', 'Remover pasta', lambda _b, index=i: self.remove_share(index))]:
-                button = Gtk.Button(icon_name=icon, tooltip_text=tooltip, valign=Gtk.Align.CENTER)
-                button.add_css_class('flat')
-                button.connect('clicked', callback)
-                row.add_suffix(button)
-            self.share_list.append(row)
+            self.share_list.append(self.ui.share_row(share,
+                lambda index=i: self.edit_share(index),
+                lambda index=i: self.remove_share(index)))
         if hasattr(self, 'ui'):
             self.ui.update_summary()
 

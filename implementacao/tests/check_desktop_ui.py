@@ -29,8 +29,31 @@ def drain(duration=.3):
         time.sleep(.005)
 def capture(window, name):
     drain()
+    if isinstance(window, MainWindow):
+        validate_layout(window)
     xid = GdkX11.X11Surface.get_xid(window.get_surface())
     subprocess.run(['import', '-window', str(xid), str(output / (name + '.png'))], check=True)
+def validate_layout(window):
+    # Vertical scrolling is intentional; hidden horizontal overflow is not.
+    scroll = window.ui.page_scrolls[window.form.get_visible_child_name()]
+    adjustment = scroll.get_hadjustment()
+    assert adjustment.get_upper() <= adjustment.get_page_size() + 1, 'Horizontal page overflow'
+    widgets = [*window.ui.tab_buttons.values(), window.connect_btn, window.ui.save_button,
+               window.status, window.profile_name, window.server, window.user, window.password,
+               window.controls, window.error, window.monitor, window.fullscreen, window.shortcut,
+               window.quality, window.keyboard_mode, window.keyboard_rules, window.share_list,
+               window.clipboard, window.ui.empty_share_state]
+    for widget in widgets:
+        if not widget.get_mapped():
+            continue
+        ok, bounds = widget.compute_bounds(window)
+        assert ok
+        assert bounds.get_x() >= 0 and bounds.get_x() + bounds.get_width() <= window.get_width(), \
+            ('Control clipped horizontally', widget, bounds.get_x(), bounds.get_width(), window.get_width())
+    for widget in [*window.ui.tab_buttons.values(), window.connect_btn]:
+        ok, bounds = widget.compute_bounds(window)
+        assert ok and bounds.get_y() >= 0 and bounds.get_y() + bounds.get_height() <= window.get_height(), \
+            'Navigation or primary action clipped vertically'
 app = App()
 app.set_flags(Gio.ApplicationFlags.NON_UNIQUE)
 app.register(None)
@@ -49,7 +72,7 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
                                 dict(accelerator='<Super>d', remote=True)]
     gui.save_cfg(cfg)
     win = MainWindow(app)
-    win.set_default_size(1120, 880)
+    win.set_default_size(1120, 820)
     win.present()
     drain(.6)
     win._integration_ready = True
@@ -58,10 +81,13 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     capture(win, 'ajr-connect-dark')
     win.ui.toggle_theme()
     capture(win, 'ajr-connect-light')
-    win._available_release = gui.updates.Release('v6.0.0-beta.8', 100)
+    win._available_release = gui.updates.Release('v6.0.0-beta.9', 100)
     with patch.object(gui.updates, 'installed_application', return_value=True):
         win.open_updates()
         capture(win._update_window, 'ajr-connect-updates')
+        win.ui.toggle_theme()
+        capture(win._update_window, 'ajr-connect-updates-dark')
+        win.ui.toggle_theme()
     win._update_window.close()
     win.ui.show_page('display')
     capture(win, 'ajr-connect-keyboard')
@@ -71,9 +97,30 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.edit_keyboard_rule(0)
     editor = next(window for window in Gtk.Window.get_toplevels() if window.get_title() == 'Regra de teclado')
     capture(editor, 'ajr-connect-shortcut-editor')
+    win.ui.toggle_theme()
+    capture(editor, 'ajr-connect-shortcut-editor-dark')
+    win.ui.toggle_theme()
+    editor.set_default_size(360, 300)
+    capture(editor, 'ajr-connect-shortcut-editor-minimum')
     editor.close()
     win.ui.show_page('sharing')
     capture(win, 'ajr-connect-sharing')
+    win.cfg['shares'] = [dict(name='Projetos', path=str(Path.home() / 'Projetos')),
+                         dict(name='Equipe', path=str(Path.home() / 'Documentos da equipe' /
+                             ('Departamento com um nome longo ' * 4) / 'Relatórios'))]
+    win.render_shares()
+    assert not win.ui.empty_share_state.get_visible()
+    capture(win, 'ajr-connect-sharing-folders')
+    win.edit_share(0)
+    folder_editor = next(window for window in Gtk.Window.get_toplevels()
+                         if window.get_title() == 'Pasta compartilhada')
+    capture(folder_editor, 'ajr-connect-share-editor')
+    win.ui.toggle_theme()
+    capture(folder_editor, 'ajr-connect-share-editor-dark')
+    win.ui.toggle_theme()
+    folder_editor.close()
+    win.cfg['shares'] = []
+    win.render_shares()
     win.ui.toggle_theme()
     win.ui.show_page('connection')
     win.set_default_size(680, 760)
@@ -87,9 +134,67 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.schedule_reconnect()
     capture(win, 'ajr-connect-reconnecting')
     win.cancel_connection()
+    win.set_default_size(620, 480)
+    drain(.4)
+    assert (win.get_surface().get_width(), win.get_surface().get_height()) == (620, 480), \
+        ('Minimum window grew to fit content', win.get_surface().get_width(), win.get_surface().get_height())
+    for page in ('connection', 'display', 'sharing'):
+        win.ui.show_page(page)
+        capture(win, 'ajr-connect-minimum-' + page)
+    add = win.ui.empty_share_state.get_last_child()
+    ok, action = add.compute_bounds(win)
+    ok_view, viewport = win.form.compute_bounds(win)
+    assert ok and ok_view and action.get_y() >= viewport.get_y()
+    assert action.get_y() + action.get_height() <= viewport.get_y() + viewport.get_height(), \
+        'Empty-state action hidden in minimum window'
+    win.ui.toggle_theme()
+    for page in ('connection', 'display', 'sharing'):
+        win.ui.show_page(page)
+        capture(win, 'ajr-connect-minimum-light-' + page)
+    win.ui.toggle_theme()
+    win.ui.show_page('connection')
+    win.password.grab_focus()
+    drain()
+    ok, field = win.password.compute_bounds(win)
+    ok_view, viewport = win.form.compute_bounds(win)
+    assert ok and ok_view and field.get_y() >= viewport.get_y()
+    assert field.get_y() + field.get_height() <= viewport.get_y() + viewport.get_height(), \
+        'Focused password hidden behind the toolbar'
+    capture(win, 'ajr-connect-minimum-password')
+    win.show_error('Não foi possível conectar. Confira o endereço, o usuário e a senha para tentar novamente.')
+    assert win.get_focus() == win.error, 'Error did not receive accessible focus'
+    capture(win, 'ajr-connect-error')
+    win.show_error('')
+    win.form.set_sensitive(False)
+    win.connect_btn.set_label('Desconectar')
+    win.connect_btn.remove_css_class('suggested-action')
+    win.controls.set_visible(True)
+    win.set_status('Conectado · Tela cheia', 'marina em escritorio.example · HDMI-1',
+                   'network-transmit-receive-symbolic')
+    capture(win, 'ajr-connect-connected-compact')
+    with patch.object(win, 'control') as command:
+        child = win.controls.get_first_child()
+        for expected in ('fullscreen', 'restore', 'minimize'):
+            child.emit('clicked')
+            command.assert_called_with(expected)
+            child = child.get_next_sibling()
+    win.controls.set_visible(False)
+    win.form.set_sensitive(True)
+    win.finish_connection()
+    win.set_default_size(1120, 820)
+    win.ui.show_page('connection')
+    win.ui.toggle_theme()
+    for page in ('connection', 'display', 'sharing'):
+        win.ui.show_page(page)
+        capture(win, 'ajr-connect-final-light-' + page)
+    win.ui.toggle_theme()
+    for page in ('connection', 'display', 'sharing'):
+        win.ui.show_page(page)
+        capture(win, 'ajr-connect-final-dark-' + page)
     win.close()
     drain()
-print('PASS: desktop, light/dark, shortcuts, updates, reconnecting and compact-sidebar captures')
+print('PASS: V2 light/dark, dialogs, folders, reconnecting, errors, session controls and '
+      '1120×820 / 680×760 / 620×480 captures; no horizontal overflow or hidden primary actions')
 '''
 
 
@@ -113,7 +218,7 @@ def main():
         try:
             env['DISPLAY'] = ':' + server.stdout.readline().strip()
             subprocess.run([sys.executable, '-c', DRIVER, str(BASE), str(args.output.resolve())],
-                           env=env, check=True, timeout=35)
+                           env=env, check=True, timeout=55)
         finally:
             server.terminate()
             server.wait(timeout=5)

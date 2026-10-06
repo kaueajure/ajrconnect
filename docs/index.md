@@ -8,7 +8,7 @@ Cliente RDP para Linux, sem bloqueio por distribuição ou tipo de sessão.
 
 ## Instalar a versão de teste
 
-Versão atual: **6.0.0-beta.6**.
+Versão atual: **6.0.0-beta.8**.
 
 No terminal da sessão gráfica, execute:
 
@@ -26,13 +26,16 @@ feche e abra o aplicativo e reconecte ao Windows. A AJR Bar pode ser atualizada
 na sessão atual. A primeira instalação ou a migração da extensão antiga pode
 exigir um único novo login; o instalador informa quando isso for necessário.
 
-Esta versão inclui a nova interface em grafite e violeta, temas claro e escuro,
+Esta versão inclui a interface V2 com superfícies neutras e accent violeta, temas claro e escuro,
 conexões salvas com busca, seleção de pastas pelo botão,
 atalho de tela cheia personalizável e prioridade configurável de Alt+Tab,
 Windows/Super e Alt+F4. As prioridades individuais exigem AJR Bar ativa no GNOME 46.
+Inclui atualização pelo aplicativo e reconexão automática após quedas de rede.
+Em versões com atualização integrada, abra **Mais opções → Atualizações**,
+ative **Incluir versões de teste**, verifique e instale a nova versão.
 
 [Código-fonte e instruções](https://github.com/kaueajure/ajrconnect) ·
-[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.6)
+[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.8)
 
 Apache 2.0. A validação em um Zorin recém-instalado ainda está pendente.
 

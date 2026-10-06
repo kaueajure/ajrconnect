@@ -4,12 +4,14 @@ Versão de teste. Consulte a versão na janela **Atualizações** do aplicativo.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
-A interface usa identidade própria em grafite e violeta. As conexões salvas
+A interface V2 usa superfícies neutras e violeta como accent. As conexões salvas
 ficam na barra lateral, com busca por nome, servidor ou usuário. Use as abas
 **Conexão**, **Tela e teclado** e **Compartilhamento** para ajustar cada área.
 O botão de sol/lua no cabeçalho alterna o tema claro/escuro e preserva a escolha.
 Em janelas menores, abra a barra lateral pelo botão do cabeçalho ou use o seletor
-de conexão acima das abas.
+de conexão acima das abas. Em janelas baixas, use o botão da barra lateral.
+Os campos de acesso empilham em janelas menores; os controles da sessão
+aparecem no rodapé durante a conexão. O tema escolhido é persistente.
 
 ## Requisitos de execução
 
@@ -27,7 +29,7 @@ hospedadas em Docker; Docker não é necessário no computador do cliente.
 
 ## Instalação
 
-Extraia o pacote, entre no diretório `ajr-connect` e execute no terminal da
+Extraia o pacote, entre no diretório `ajr-connect` e execute no terminal com
 seu usuário, sem sudo:
 
 ```sh
@@ -59,6 +61,11 @@ e interrompe a instalação sem alterar as fontes ou ignorar assinaturas.
 
 O aplicativo atualizado pode ser usado após fechar e abrir o AJR Connect e
 reconectar o Windows. Atualizações da barra são aplicadas na sessão atual.
+Em versões com atualização integrada, abra **Mais opções → Atualizações**,
+ative **Incluir versões de teste** e escolha **Verificar atualizações**.
+Encerre a conexão antes de escolher **Baixar e atualizar**. Depois da instalação,
+escolha **Reiniciar aplicativo**. O download confere os hashes SHA256 e o
+instalador preserva configurações e cria backup.
 Na primeira instalação ou na migração da extensão antiga, um único novo login
 pode ser necessário para ativar a ponte recarregável. O instalador informa esse caso.
 Abra AJR Connect pelo menu de aplicativos. Informe servidor, usuário, senha,
@@ -77,18 +84,23 @@ Pastas de rede precisam estar montadas no Linux antes do compartilhamento.
 
 Ctrl+Alt+Enter é o atalho inicial de tela cheia. Em **Tela e teclado**, clique
 em **Alterar** no atalho, pressione a combinação desejada e salve.
-Em **Prioridade dos atalhos**, escolha encaminhar teclas ao Windows somente
+Em **Atalhos**, escolha encaminhar teclas ao Windows somente
 em tela cheia, também em janela ou manter atalhos no computador local.
 Os interruptores de **Alt+Tab**, **Windows/Super** (sozinha) e **Alt+F4**
 definem o destino individual: ativado para Windows, desativado para Linux.
 Prioridades individuais exigem AJR Bar atualizada e ativa no GNOME 46; sem essa integração,
 use todos no Windows ou mantenha os atalhos no computador local.
-Em **Outras combinações → Adicionar atalho**, configure qualquer combinação
+Em **Atalhos personalizados → Adicionar atalho**, configure qualquer combinação
 para executar no Windows ou neste computador. As regras são salvas por conexão.
 Atalhos locais precisam estar configurados nas preferências de teclado do Linux.
 Combinações sem regra seguem a captura geral. Atalhos
 reservados pelo desktop podem ter prioridade quando a captura está desativada.
 Reconecte depois de mudar as preferências de teclado.
+
+Em **Conexão → Preferências**, a opção **Reconectar automaticamente** tenta
+recuperar a sessão até cinco vezes após uma queda de rede. O rodapé informa
+a próxima tentativa e permite cancelar. Erros de autenticação, logoff e
+desconexões voluntárias não iniciam reconexões.
 
 Passe o mouse no topo central para minimizar, sair de fullscreen ou
 desconectar pela AJR Bar.
@@ -102,7 +114,7 @@ ficam no chaveiro GNOME. A instalação preserva configurações existentes e
 cria um backup dos componentes substituídos e das configurações GNOME afetadas.
 Remove somente o atalho GNOME Ctrl+Alt+Enter que conflita com o cliente.
 
-Para atualizar, desconecte a sessão Windows e abra **Atualizações** pelo ícone
+Para atualizar, desconecte a sessão Windows e abra **Mais opções → Atualizações**
 do cabeçalho. Clique em **Baixar e atualizar** e, ao concluir, em **Reiniciar
 aplicativo**. O download mostra progresso, pode ser cancelado e é conferido por
 SHA256 antes da instalação. Falhas de instalação tentam restaurar o backup.
