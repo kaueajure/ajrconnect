@@ -72,16 +72,19 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
                                 dict(accelerator='<Super>d', remote=True)]
     gui.save_cfg(cfg)
     win = MainWindow(app)
+    # UI cases below exercise an available keyboard backend. Consent/rejection
+    # get separate captures, without contacting the user's real portal.
     win.set_default_size(1120, 820)
     win.present()
     drain(.6)
     win._integration_ready = True
+    win.integration_banner.set_revealed(False)
     win.ui.integration_changed(True)
     win.update_keyboard_options()
     capture(win, 'ajr-connect-dark')
     win.ui.toggle_theme()
     capture(win, 'ajr-connect-light')
-    win._available_release = gui.updates.Release('v6.0.0-beta.9', 100)
+    win._available_release = gui.updates.Release('v6.0.0-beta.10', 100)
     with patch.object(gui.updates, 'installed_application', return_value=True):
         win.open_updates()
         capture(win._update_window, 'ajr-connect-updates')
@@ -191,6 +194,12 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     for page in ('connection', 'display', 'sharing'):
         win.ui.show_page(page)
         capture(win, 'ajr-connect-final-dark-' + page)
+    win._bridge_ready = False
+    win.portal_changed(False, 'Autorize o teclado do sistema para usar atalhos locais e remotos juntos.')
+    capture(win, 'ajr-connect-keyboard-authorization')
+    win.set_default_size(620, 480)
+    win.ui.show_page('connection')
+    capture(win, 'ajr-connect-keyboard-authorization-minimum')
     win.close()
     drain()
 print('PASS: V2 light/dark, dialogs, folders, reconnecting, errors, session controls and '
@@ -219,6 +228,14 @@ def main():
             env['DISPLAY'] = ':' + server.stdout.readline().strip()
             subprocess.run([sys.executable, '-c', DRIVER, str(BASE), str(args.output.resolve())],
                            env=env, check=True, timeout=55)
+            subprocess.run([sys.executable, str(BASE / 'tests/check_keyboard_policy.py')],
+                           env=env, check=True, timeout=30, stdout=subprocess.DEVNULL)
+            for name, theme, width, scale in [('dark', 'dark', 800, 1), ('light', 'light', 800, 1),
+                                             ('compact', 'dark', 400, 1), ('scale-2', 'dark', 1280, 2)]:
+                bar_env = dict(env, AJR_BAR_THEME=theme, AJR_BAR_TEST_WIDTH=str(width), AJR_UI_SCALE=str(scale),
+                               AJR_BAR_PREVIEW=str(args.output.resolve() / ('ajr-native-bar-' + name + '.png')))
+                subprocess.run([str(BASE / 'tests/keyboard-policy')], env=bar_env, check=True,
+                               timeout=10, stdout=subprocess.DEVNULL)
         finally:
             server.terminate()
             server.wait(timeout=5)

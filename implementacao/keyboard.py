@@ -103,3 +103,58 @@ def native_rules(rules, fullscreen_shortcut):
     return ';'.join(f'{key}:{x11_modifiers(modifiers)}:{int(rule["remote"])}'
         for rule in validate_rules(rules, fullscreen_shortcut)
         for key, modifiers in [shortcut_parts(rule['accelerator'], routing=True)])
+
+
+def desktop_bindings():
+    """Read the same GNOME bindings that the Shell runtime accepts."""
+    from gi.repository import Gio
+    source = Gio.SettingsSchemaSource.get_default()
+    if not source:
+        return []
+    bindings = []
+    for name in ('org.gnome.desktop.wm.keybindings', 'org.gnome.shell.keybindings',
+                 'org.gnome.settings-daemon.plugins.media-keys'):
+        schema = source.lookup(name, True)
+        if not schema:
+            continue
+        settings = Gio.Settings.new(name)
+        for key in schema.list_keys():
+            if schema.get_key(key).get_value_type().dup_string() == 'as':
+                values = settings.get_strv(key)
+                if key == 'custom-keybindings':
+                    custom_schema = source.lookup('org.gnome.settings-daemon.plugins.media-keys.custom-keybinding', True)
+                    if custom_schema:
+                        for path in values:
+                            custom = Gio.Settings.new_full(custom_schema, None, path)
+                            bindings.append(custom.get_string('binding'))
+                else:
+                    bindings.extend(values)
+    result = []
+    for binding in bindings:
+        try:
+            key, modifiers = shortcut_parts(binding, routing=True)
+            result.append((key, x11_modifiers(modifiers)))
+        except ValueError:
+            pass
+    return result
+
+
+def desktop_shortcut(action, reverse=False):
+    from gi.repository import Gio
+    if action == 1:
+        settings = Gio.Settings.new('org.gnome.desktop.wm.keybindings')
+        windows = any(value in ('<Alt>Tab', '<Mod1>Tab') for value in settings.get_strv('switch-windows'))
+        key = 'switch-windows' if windows else 'switch-applications'
+        if reverse:
+            key += '-backward'
+        for value in settings.get_strv(key):
+            try:
+                keyval, modifiers = shortcut_parts(value, routing=True)
+                return keyval, x11_modifiers(modifiers)
+            except ValueError:
+                pass
+        return Gdk.KEY_Tab, 8 | int(reverse)
+    if action == 2:
+        value = Gio.Settings.new('org.gnome.mutter').get_string('overlay-key')
+        return (Gdk.keyval_from_name(value), 0) if value else (0, 0)
+    raise ValueError('Ação local desconhecida.')

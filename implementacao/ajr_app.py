@@ -19,9 +19,9 @@ from core import (DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
                   DEFAULT, PROFILE_KEYS, detect_monitors, host_port, load_cfg,
                   resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
-from integration import installed_revision
 from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
-from keyboard import native_rules, validate_rules, x11_modifiers
+from keyboard import native_rules, validate_rules, x11_modifiers, desktop_bindings, desktop_shortcut
+from keyboard_portal import KeyboardPortal
 from reconnect import RetryPlan
 import updates
 from update_dialog import UpdateWindow
@@ -68,6 +68,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._profiles_updating = False
         self._password_generation = 0
         self._integration_ready = False
+        self._bridge_ready = False
+        self._portal_connect = False
         self.proc, self.session, self.x11 = None, None, None
         self._status_generation = 0
         self._status_source = 0
@@ -95,37 +97,72 @@ class MainWindow(Adw.ApplicationWindow):
         self.schedule_status()
         self.ui.update_summary()
         self._poll = GLib.timeout_add(250, self.poll_session)
+        self.keyboard_portal = KeyboardPortal(self.portal_changed)
+        self.integration_banner.set_button_label('Autorizar')
+        self.integration_banner.connect('button-clicked', lambda *_: self.authorize_keyboard())
         def integration_status():
             try:
                 ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                     LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'Ping', None,
                     GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
-                message = 'AJR Bar indisponível. Use os controles do aplicativo ou o atalho configurado.'
+                if ready:
+                    ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                        LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'GetKeyboardVersion', None,
+                        GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0] >= 2
             except GLib.Error:
-                ready, message = False, 'AJR Bar indisponível. Use os controles do aplicativo ou o atalho de tela cheia configurado.'
+                ready = False
                 try:
                     result = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                         'org.gnome.Shell', '/org/gnome/Shell', 'org.gnome.Shell.Extensions',
                         'GetExtensionInfo', GLib.Variant('(s)', (EXTENSION_ID,)), None,
                         Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
-                    if result and result.get('version', 0) < 8 and installed_revision():
-                        message = 'Aplicativo atualizado. A nova integração precisa de um único novo login; depois, a barra poderá ser atualizada nesta sessão.'
-                    elif result:
-                        message = 'A AJR Bar está desativada. Ative AJR Connect no aplicativo Extensões.'
+                    if result and result.get('version', 0) < 8:
+                        # The native client now owns the bar. Disable only our
+                        # legacy extension so two toolbars cannot overlap.
+                        Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                            'org.gnome.Shell', '/org/gnome/Shell', 'org.gnome.Shell.Extensions',
+                            'DisableExtension', GLib.Variant('(s)', (EXTENSION_ID,)), None,
+                            Gio.DBusCallFlags.NONE, 1000, None)
                 except GLib.Error:
                     pass
             def done():
                 if self._closing:
                     return
-                self._integration_ready = ready
-                self.integration_banner.set_title(message)
-                self.integration_banner.set_revealed(not ready and 'único novo login' in message)
-                self.ui.integration_changed(ready)
+                self._bridge_ready = self._integration_ready = ready
+                self.ui.integration_changed(True)
                 self.update_keyboard_options()
+                if not ready and (self.keyboard_portal.token_path.exists() or self.requires_local_keyboard()):
+                    self.authorize_keyboard()
             GLib.idle_add(done)
         threading.Thread(target=integration_status, daemon=True).start()
         if self.cfg['check_updates'] and updates.installed_application():
             GLib.timeout_add(1500, self.check_updates_on_startup)
+
+    def portal_changed(self, ready, message):
+        if self._closing:
+            return
+        self._integration_ready = self._bridge_ready or ready
+        self.update_keyboard_options()
+        self.integration_banner.set_title(message)
+        self.integration_banner.set_revealed(bool(message) and not self._bridge_ready)
+
+    def requires_local_keyboard(self):
+        return self.cfg['keyboard_mode'] != 'local' and (any(
+            not rule['remote'] for rule in self.cfg['keyboard_shortcuts']) or not all(
+            self.cfg[key] for key in ('remote_alt_tab', 'remote_super', 'remote_alt_f4')))
+
+    def authorize_keyboard(self, connect=False):
+        if self._closing:
+            return
+        if connect:
+            self._portal_connect = True
+        def done(ready, message):
+            reconnect, self._portal_connect = self._portal_connect, False
+            if not self._closing and ready and reconnect:
+                self.do_connect()
+            elif not self._closing and message and reconnect:
+                self.show_error(message)
+        self.keyboard_portal.start(done)
 
     def refresh_monitors(self):
         try:
@@ -312,7 +349,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.keyboard_note.set_text(
             'Atalhos locais usam as configurações de teclado deste computador. Reconecte após alterar as regras.'
             if self._integration_ready else
-            'Para misturar atalhos locais e remotos, ative a AJR Bar atualizada no GNOME. Sem ela, escolha todos no Windows ou todos locais.')
+            'Autorize os atalhos locais no sistema para misturar Linux e Windows. A AJR Bar já está integrada ao cliente RDP.')
+        if hasattr(self, 'keyboard_portal') and not self._integration_ready and not self.keyboard_portal.pending and self.requires_local_keyboard():
+            self.integration_banner.set_title('Autorize os atalhos locais do Linux.')
+            self.integration_banner.set_revealed(True)
 
     def render_keyboard_rules(self):
         while (child := self.keyboard_rules.get_first_child()) is not None:
@@ -429,6 +469,7 @@ class MainWindow(Adw.ApplicationWindow):
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
         self._closing = True
+        self.keyboard_portal.close()
         self.get_application().quit()
 
     def set_status(self, title, subtitle, icon='network-server-symbolic'):
@@ -503,7 +544,10 @@ class MainWindow(Adw.ApplicationWindow):
             custom_local = any(not rule['remote'] for rule in self.cfg['keyboard_shortcuts'])
             if self.cfg['keyboard_mode'] != 'local' and (custom_local or not all(
                     self.cfg[key] for key in self.keyboard_rows)):
+                ready = self.keyboard_portal.ready
                 try:
+                    if not self._bridge_ready:
+                        raise RuntimeError('Usar portal')
                     ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                         LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'Ping', None,
                         GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
@@ -511,16 +555,18 @@ class MainWindow(Adw.ApplicationWindow):
                         ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                             LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'GetKeyboardVersion', None,
                             GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0] >= 2
-                except GLib.Error:
-                    ready = False
+                except (GLib.Error, RuntimeError):
+                    ready = self.keyboard_portal.ready
                 if not ready:
-                    raise ValueError('Ative a AJR Bar atualizada para usar prioridades individuais de teclado.')
+                    self.authorize_keyboard(connect=True)
+                    return
         except (ValueError, OSError, subprocess.TimeoutExpired, GLib.Error) as exc:
             self.show_error(str(exc))
             return
         self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor,
             command=command, password=self.password.get_text(), key=shortcut_key,
-            mods=x11_modifiers(shortcut_mods), rules=rule_protocol)
+            mods=x11_modifiers(shortcut_mods), rules=rule_protocol,
+            scale=self.get_scale_factor(), dark=Adw.StyleManager.get_default().get_dark())
         self._retry_plan = RetryPlan(enabled=self.cfg['auto_reconnect'])
         self._manual_disconnect = self._reconnecting = False
         self.start_connection()
@@ -563,6 +609,8 @@ class MainWindow(Adw.ApplicationWindow):
                 updates.check_cancel(cancel)
                 token = secrets.token_hex(4)
                 env = dict(os.environ, AJR_CONTROL_TOKEN=token,
+                           AJR_NATIVE_BAR='1', AJR_UI_SCALE=str(request.get('scale', 1)),
+                           AJR_BAR_THEME='dark' if request.get('dark', True) else 'light',
                            AJR_MONITOR_CONNECTOR=monitor['connector'],
                            AJR_KEYBOARD_MODE=cfg['keyboard_mode'],
                            AJR_FULLSCREEN_KEY=str(request['key']),
@@ -580,7 +628,7 @@ class MainWindow(Adw.ApplicationWindow):
                     proc = subprocess.Popen(command, stdin=subprocess.PIPE,
                         stdout=log, stderr=subprocess.STDOUT, text=True, env=env)
                 session = dict(pid=proc.pid, token=token, connector=monitor['connector'],
-                               log=str(log_path), start_fullscreen=cfg['fullscreen'])
+                               log=str(log_path), start_fullscreen=cfg['fullscreen'], native_bar=True)
                 atomic_json(RUNTIME_DIR / f'session-{proc.pid}.json', session)
                 proc.stdin.write(password + '\n')
                 proc.stdin.close()
@@ -768,22 +816,58 @@ class MainWindow(Adw.ApplicationWindow):
 
     def dispatch_local_request(self, method, signature, arguments):
         pid, token = self.proc.pid, self.session['token']
-        def done(connection, result, pid=pid, token=token):
+        def completed(accepted, error=''):
+            if not self.proc or self.proc.pid != pid or self.session['token'] != token:
+                return
+            if not accepted:
+                self.toast.add_toast(Adw.Toast(title='Não foi possível executar o atalho local: ' + error))
+            def resume():
+                if self.proc and self.proc.pid == pid and self.session['token'] == token:
+                    self.x11.control(pid, token, 6)
+                return GLib.SOURCE_REMOVE
+            GLib.timeout_add(100, resume)
+        if not self._bridge_ready:
+            try:
+                if not self.x11.is_active(pid):
+                    completed(False, 'A sessão RDP perdeu o foco.')
+                    return
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+                locked = bus.call_sync(
+                    'org.gnome.ScreenSaver', '/org/gnome/ScreenSaver', 'org.gnome.ScreenSaver',
+                    'GetActive', None, GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                if locked:
+                    completed(False, 'A sessão Linux está bloqueada.')
+                    return
+                if method == 'LocalShortcut':
+                    action, reverse = arguments
+                    if action == 3:
+                        self.x11.control(pid, token, 4)
+                        return
+                    if action == 2:
+                        active = bus.call_sync(LOCAL_BUS, '/org/gnome/Shell', 'org.freedesktop.DBus.Properties',
+                            'Get', GLib.Variant('(ss)', ('org.gnome.Shell', 'OverviewActive')), None,
+                            Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                        bus.call_sync(LOCAL_BUS, '/org/gnome/Shell', 'org.freedesktop.DBus.Properties',
+                            'Set', GLib.Variant('(ssv)', ('org.gnome.Shell', 'OverviewActive', GLib.Variant('b', not active))),
+                            None, Gio.DBusCallFlags.NONE, 1000, None)
+                        completed(True)
+                        return
+                    key, modifiers = desktop_shortcut(action, reverse)
+                else:
+                    key, modifiers, _code = arguments
+                    if (key, modifiers) not in desktop_bindings():
+                        completed(False, 'Essa combinação não tem um atalho configurado no Linux.')
+                        return
+                self.keyboard_portal.send(key, modifiers, completed)
+            except (GLib.Error, ValueError, RuntimeError) as error:
+                completed(False, str(error))
+            return
+        def done(connection, result):
             try:
                 accepted = connection.call_finish(result).unpack()[0]
-                if not accepted:
-                    raise RuntimeError('A integração local recusou o atalho.')
-            except (GLib.Error, RuntimeError) as exc:
-                self.toast.add_toast(Adw.Toast(title='Não foi possível executar o atalho local: ' + str(exc)))
-            finally:
-                if self.proc and self.proc.pid == pid:
-                    # Let compositor input queued by the bridge drain before
-                    # the client can grab the keyboard and forward keys again.
-                    def resume():
-                        if self.proc and self.proc.pid == pid:
-                            self.x11.control(pid, token, 6)
-                        return GLib.SOURCE_REMOVE
-                    GLib.timeout_add(100, resume)
+                completed(accepted, 'A integração local recusou o atalho.' if not accepted else '')
+            except GLib.Error as exc:
+                completed(False, str(exc))
         try:
             Gio.bus_get_sync(Gio.BusType.SESSION, None).call(
                 LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, method,
@@ -805,6 +889,7 @@ class MainWindow(Adw.ApplicationWindow):
             return True
         self.persist()
         self._closing = True
+        self.keyboard_portal.close()
         if self._status_source:
             GLib.source_remove(self._status_source)
             self._status_source = 0

@@ -1077,6 +1077,7 @@ BOOL xf_event_process(freerdp* instance, const XEvent* event)
 	xfAppWindow* appWindow;
 	xfContext* xfc = (xfContext*)instance->context;
 	rdpSettings* settings = xfc->context.settings;
+    if (xf_ajr_bar_event(xfc, event, &status)) return status;
     if (getenv("AJR_DIAGNOSTIC") && (event->type == FocusIn || event->type == FocusOut ||
         event->type == MapNotify || event->type == UnmapNotify || event->type == KeyPress || event->type == KeyRelease))
         fprintf(stderr, "AJR_DIAG event=%d focusMode=%d focusDetail=%d focused=%d grabbed=%d fullscreen=%d\n",

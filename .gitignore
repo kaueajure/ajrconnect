@@ -12,6 +12,7 @@
 !/implementacao/ui.py
 !/implementacao/dialogs.py
 !/implementacao/keyboard.py
+!/implementacao/keyboard_portal.py
 !/implementacao/version.py
 !/implementacao/reconnect.py
 !/implementacao/updates.py
@@ -38,6 +39,7 @@
 
 /implementacao/native/*
 !/implementacao/native/ajr.c
+!/implementacao/native/ajr_bar.c
 !/implementacao/native/ajr.h
 !/implementacao/native/ajr-freerdp.patch
 !/implementacao/native/build.py
@@ -74,6 +76,8 @@
 !/implementacao/tests/test_updates.py
 !/implementacao/tests/test_reconnect.py
 !/implementacao/tests/test_integration_update.py
+!/implementacao/tests/test_keyboard_portal.py
+!/implementacao/tests/check_portal_session.py
 !/implementacao/tests/check_live_update.py
 !/implementacao/tests/check_desktop_ui.py
 !/implementacao/tests/check_keyboard_policy.py

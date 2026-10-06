@@ -62,7 +62,7 @@ with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GN
     metadata = json.loads((install.DATA / 'last-install.json').read_text())
     if sys.argv[2] in ('hot-update', 'legacy-update'):
         assert not any(call.args[0][:2] == ['gnome-extensions', 'disable'] for call in commands.call_args_list)
-        assert metadata['needs_shell_restart'] == (sys.argv[2] == 'legacy-update')
+        assert not metadata['needs_shell_restart']
         assert metadata['bridge_loader_changed'] == (sys.argv[2] == 'legacy-update')
     if metadata['extension_managed']:
         assert install.desktop_exec(sys.executable, install.APP / 'enable-extension.py') in (

@@ -105,6 +105,11 @@ class X11:
         window = self.find_window(pid)
         return self.property(window, '_AJR_STATE_V1') if window else None
 
+    def is_active(self, pid):
+        window = self.find_window(pid)
+        return bool(window and self.property(self.lib.XDefaultRootWindow(self.display),
+                                            '_NET_ACTIVE_WINDOW') == [window])
+
     def geometry(self, pid):
         window = self.find_window(pid)
         if not window:

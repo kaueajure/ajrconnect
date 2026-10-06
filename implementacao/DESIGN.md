@@ -107,14 +107,14 @@ na verificação de compatibilidade e na lista permitida do `.gitignore`.
 
 Executados em `implementacao/`:
 
-- `python3 -m unittest discover -s tests -p 'test_*.py' -v`: 70 testes aprovados,
+- `python3 -m unittest discover -s tests -p 'test_*.py' -v`: 76 testes aprovados,
   incluindo os 69 anteriores e a nova regressão de apresentação V2.
 - `python3 tests/check_keyboard_policy.py`: aprovado; regras locais/remotas,
   captura, modificadores, foco, recuperação e atalho de fullscreen.
 - `python3 tests/check_live_update.py`: aprovado no GNOME 46; integração local,
   validação de token, atualização e rollback com o mesmo processo do Shell.
 - `python3 tests/check_desktop_ui.py --output ../previews`: aprovado;
-  31 capturas finais, sem overflow horizontal ou ações fixas ocultas.
+  37 capturas finais, sem overflow horizontal ou ações fixas ocultas.
 
 As capturas foram revisadas durante as etapas e após os ajustes de contraste,
 altura dos diálogos, estado vazio, rodapé, foco de erros e janela mínima.
@@ -126,3 +126,26 @@ os avisos de EGL e ausência de barramento D-Bus são esperados nesse ambiente.
 A validação usa perfis de exemplo e HOME privado, sem consultar credenciais
 do usuário nem abrir uma sessão RDP real. Os módulos de sessão, FreeRDP,
 armazenamento, chaveiro e atualização mantêm sua lógica anterior.
+
+## Atualização sem novo login (beta.9)
+
+A AJR Bar é uma janela X11 filha do viewport RDP, desenhada com Cairo/Pango.
+Ela não depende da descoberta nem do cache de extensões do GNOME. Eventos da
+barra são consumidos antes dos handlers RDP; somente um par de press/release
+do botão esquerdo no mesmo controle executa a ação. A posição acompanha o
+viewport, a escala vem do aplicativo GTK e o tema é fixado ao iniciar a sessão.
+O cliente publica `_AJR_NATIVE_BAR_V1`; o registro inclui `native_bar=true`,
+para a ponte GNOME atual não exibir uma segunda barra. A extensão clássica
+carregada é desativada na abertura do aplicativo, sem reiniciar o compositor.
+
+`keyboard_portal.py` pede somente teclado ao portal RemoteDesktop. O sistema
+apresenta a autorização; o aplicativo nunca confirma o diálogo pelo usuário.
+O token de restauração fica em um arquivo separado com permissão 0600 e é
+substituído em cada autorização restaurada. A recusa mantém o aplicativo e a
+barra utilizáveis e oferece nova tentativa. O envio usa o grab suspenso pelo
+cliente, exige foco na sessão, recusa desktop bloqueado e regras sem associação
+local, e libera todos os modificadores mesmo em falhas de envio.
+
+`tests/check_portal_session.py` cria um compositor, HOME, barramento D-Bus e
+serviços de portal privados. A automação AT-SPI aprova somente esse diálogo
+de teste e verifica o atalho real e a restauração da autorização.

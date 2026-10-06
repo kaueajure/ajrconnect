@@ -138,6 +138,11 @@ struct xf_context
     UINT32 ajr_token;
     UINT64 ajr_deadline;
     unsigned long ajr_state[8];
+    Window ajr_bar;
+    int ajr_bar_scale, ajr_bar_hover, ajr_bar_pressed;
+    int ajr_bar_width, ajr_bar_height;
+    BOOL ajr_bar_dark, ajr_bar_mapped, ajr_bar_expanded;
+    UINT64 ajr_bar_hide_due;
 
 
 	GC gc;

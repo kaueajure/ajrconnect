@@ -10,7 +10,7 @@ import subprocess
 import sys
 
 BASE = Path(__file__).resolve().parent
-FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'assets/style.css', 'assets/ajr-connect.svg', 'assets/workspace.svg',
+FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_portal.py', 'assets/style.css', 'assets/ajr-connect.svg', 'assets/workspace.svg',
          'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
          'dependencies.py',
          'version.py', 'reconnect.py', 'updates.py', 'update_dialog.py',

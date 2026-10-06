@@ -10,7 +10,13 @@ from unittest.mock import patch
 base = Path(__file__).resolve().parent
 native = base.parent / 'native'
 commands = []
-with patch('subprocess.run', lambda command, **kwargs: commands.append(command)):
+original_run = subprocess.run
+def record_build(command, **kwargs):
+    if command[0] == 'gcc':
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0)
+    return original_run(command, **kwargs)
+with patch('subprocess.run', record_build):
     runpy.run_path(str(native / 'build.py'))
 command = commands[0]
 command = [str(base / 'keyboard_policy.c') if value.endswith('/cli/xfreerdp.c')

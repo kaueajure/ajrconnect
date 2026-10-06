@@ -1,9 +1,9 @@
 # AJR Connect — versão de teste
 
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
-AJR Bar para controlar sessões Windows no GNOME 46.
+AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.8**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.9**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
 atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
@@ -48,9 +48,9 @@ executa `apt-get update`. A instalação depende de elas conterem versões
 disponíveis para as dependências; se estiverem vazias ou antigas, será
 necessário atualizá-las manualmente após corrigir eventuais fontes com erro.
 
-A AJR Bar é uma integração opcional para GNOME 46. Em outros desktops ou
-versões do GNOME, o cliente é instalado com os controles na janela do
-aplicativo e Ctrl+Alt+Enter para alternar fullscreen.
+A AJR Bar pertence ao cliente RDP e não exige uma extensão GNOME.
+Os controles também estão disponíveis na janela do aplicativo.
+Use Ctrl+Alt+Enter para alternar a tela cheia.
 
 O AJR Connect conecta a servidores Windows por RDP, incluindo VMs hospedadas
 em Docker. Docker não é necessário no computador que executa o cliente.
@@ -73,8 +73,9 @@ antes de executá-la, não permite remoções e não faz downgrade automático.
 Se todas as dependências já estiverem instaladas, não usa sudo.
 O aplicativo atualizado pode ser usado após fechar e abrir o AJR Connect e
 reconectar o Windows. Atualizações da AJR Bar são aplicadas na sessão atual.
-Na primeira instalação ou na migração da extensão antiga para a ponte
-recarregável, o instalador pode solicitar um único novo login para ativar a barra.
+A AJR Bar faz parte do cliente RDP e funciona após reabrir e reconectar, sem
+encerrar a sessão Linux. Quando necessário, o sistema pede autorização de
+teclado para os atalhos locais. Ative a opção de lembrar essa autorização.
 
 Para apenas verificar o ambiente:
 
@@ -94,7 +95,7 @@ campos vazios; configurações existentes são preservadas.
   em tela cheia, também em janela ou manter os atalhos no computador local.
 - Ative ou desative individualmente **Alt+Tab**, **Windows/Super** (sozinha) e
   **Alt+F4**. Ativado executa no Windows; desativado executa no Linux.
-  Essa combinação de prioridades exige a **AJR Bar atualizada e ativa no GNOME 46**.
+  Para essa combinação de prioridades, autorize o teclado no sistema quando solicitado.
 - Em **Tela e teclado → Atalhos personalizados → Adicionar atalho**, escolha uma
   sugestão ou informe qualquer combinação, por exemplo **Ctrl + Alt + Esquerda**,
   **Super + Ctrl + Direita** ou **Super + D**. Escolha **Este computador** ou
@@ -106,7 +107,7 @@ campos vazios; configurações existentes são preservadas.
   personalizados do sistema. É possível digitar a combinação quando o desktop
   a intercepta durante a gravação. Regras duplicadas ou que usem o atalho de
   tela cheia são rejeitadas.
-- No GNOME 46, a AJR Bar no topo central permite minimizar, sair de fullscreen e desconectar.
+- A AJR Bar no topo central da janela RDP permite minimizar, sair de fullscreen e desconectar.
 - Os mesmos controles estão disponíveis na janela do aplicativo.
 
 Atalhos que o desktop reserva podem ter prioridade quando a captura está
@@ -172,10 +173,14 @@ com nomes derivados do conteúdo. Isso permite importar o código novo sem
 reutilizar a versão antiga guardada no cache do GNOME. Erros ao importar a nova
 versão mantêm a barra anterior; erros ao ativá-la tentam restaurar a anterior.
 
-Uma nova entrada na sessão ainda pode ser necessária para a primeira ativação,
-a migração da extensão antiga e alterações excepcionais na parte fixa. Mudanças
-rotineiras no aplicativo e nos módulos da barra não exigem novo login. A
-integração indisponível em outros desktops não impede o uso dos controles da janela.
+A barra de controles agora está dentro da janela RDP e dispensa a extensão
+GNOME, inclusive na primeira instalação e na migração da versão antiga.
+A extensão recarregável continua como um backend opcional para os atalhos.
+Quando ela está indisponível, o portal do desktop autoriza somente o teclado:
+não solicita compartilhamento de tela, mouse ou área de transferência.
+No GNOME 46, a opção de lembrar permite restaurar a autorização ao reabrir.
+Se ela for recusada ou revogada, o aplicativo oferece **Autorizar** para repetir
+a tentativa; os controles da barra continuam disponíveis.
 
 O cliente preserva o compartilhamento de pastas e usa renderização por software,
 sem ativar `/gfx`, `/gdi:hw` ou a floatbar visual nativa do FreeRDP.

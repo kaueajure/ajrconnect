@@ -622,4 +622,4 @@ class DesktopView:
             self.owner.status.set_title('Conectado a ' + name)
 
     def integration_changed(self, ready):
-        self.integration_label.set_text('AJR Bar conectada' if ready else 'Controles no aplicativo')
+        self.integration_label.set_text('AJR Bar integrada ao cliente')

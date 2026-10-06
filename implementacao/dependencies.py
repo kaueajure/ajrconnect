@@ -10,7 +10,7 @@ from check_compatibility import GI_PROBE, LIBRARY_PROBE, run as probe
 PACKAGES = ('python3', 'python3-gi', 'gir1.2-gtk-4.0', 'gir1.2-adw-1',
             'x11-xserver-utils',
             'libsecret-tools', 'libx11-6', 'libxrender1', 'libxrandr2',
-            'libxinerama1', 'libxcursor1', 'libxfixes3', 'libxext6')
+            'libxinerama1', 'libxcursor1', 'libxfixes3', 'libxext6', 'libcairo2', 'libpango-1.0-0', 'libpangocairo-1.0-0')
 RDP_PACKAGES = ('libfreerdp2-2t64', 'libfreerdp-client2-2t64', 'libwinpr2-2t64')
 RDP_CHOICES = {package: (package, package.removesuffix('t64')) for package in RDP_PACKAGES}
 
@@ -107,7 +107,8 @@ def runtime_available():
         return False
     try:
         sonames = {'X11': 6, 'Xrender': 1, 'Xrandr': 2, 'Xinerama': 1,
-                   'Xcursor': 1, 'Xfixes': 3, 'Xext': 6}
+                   'Xcursor': 1, 'Xfixes': 3, 'Xext': 6, 'cairo': 2,
+                   'pango-1.0': 0, 'pangocairo-1.0': 0}
         for name, version in sonames.items():
             ctypes.CDLL(f'lib{name}.so.{version}')
     except OSError:

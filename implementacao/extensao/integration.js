@@ -214,7 +214,7 @@ export default class AJRConnectIntegration {
 
     _usable() {
         const win = global.display.focus_window;
-        return win && this._windows.get(win) && win.is_fullscreen() && !win.minimized &&
+        return win && this._windows.get(win) && !this._windows.get(win).native_bar && win.is_fullscreen() && !win.minimized &&
             win.showing_on_its_workspace() && !Main.overview.visible &&
             !Main.sessionMode.isLocked ? win : null;
     }

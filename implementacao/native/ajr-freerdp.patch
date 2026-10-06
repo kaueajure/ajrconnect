@@ -1,9 +1,6 @@
 --- a/client/X11/xfreerdp.h
 +++ b/client/X11/xfreerdp.h
-@@ -124,6 +124,21 @@
- {
- 	rdpContext context;
- 	DEFINE_RDP_CLIENT_COMMON();
+@@ -126,0 +127,20 @@
 +    BOOL ajr_pending, ajr_grabbed;
 +    BOOL ajr_capture_window, ajr_local_pending;
 +    KeySym ajr_fullscreen_key;
@@ -18,65 +15,32 @@
 +    UINT32 ajr_token;
 +    UINT64 ajr_deadline;
 +    unsigned long ajr_state[8];
++    Window ajr_bar;
++    int ajr_bar_scale, ajr_bar_hover, ajr_bar_pressed;
++    int ajr_bar_width, ajr_bar_height;
++    BOOL ajr_bar_dark, ajr_bar_mapped, ajr_bar_expanded;
++    UINT64 ajr_bar_hide_due;
 +
- 
- 	GC gc;
- 	int xfds;
 --- a/client/X11/xf_client.c
 +++ b/client/X11/xf_client.c
-@@ -94,6 +94,7 @@
- #include "xf_tsmf.h"
- #endif
- #include "xf_event.h"
+@@ -96,0 +97 @@
 +#include "ajr.h"
- #include "xf_input.h"
- #include "xf_cliprdr.h"
- #include "xf_disp.h"
-@@ -282,7 +283,11 @@
- 
- 	if (!xfc->fullscreen)
- 	{
+@@ -285 +286,5 @@
 -		xf_ResizeDesktopWindow(xfc, xfc->window, settings->DesktopWidth, settings->DesktopHeight);
 +		/* AJR keeps the local viewport independent of server framebuffer resets. */
 +        if (!settings->SmartSizing)
 +            xf_ResizeDesktopWindow(xfc, xfc->window, settings->DesktopWidth, settings->DesktopHeight);
 +        else if (xfc->window)
 +            xf_draw_screen(xfc, 0, 0, settings->DesktopWidth, settings->DesktopHeight);
- 	}
- 	else
- 	{
-@@ -316,6 +321,9 @@
- 	HGDI_RGN cinvalid;
- 	xfContext* xfc = (xfContext*)context;
- 	rdpGdi* gdi = context->gdi;
+@@ -318,0 +324,3 @@
 +    if (getenv("AJR_DIAGNOSTIC"))
 +        fprintf(stderr, "AJR_DIAG paint fullscreen=%d suppressed=%d invalid=%d\n",
 +                xfc->fullscreen, gdi->suppressOutput, !gdi->primary->hdc->hwnd->invalid->null);
- 
- 	if (gdi->suppressOutput)
- 		return TRUE;
-@@ -518,6 +526,7 @@
- 			break;
- 	}
- 
+@@ -520,0 +529 @@
 +	xf_ajr_sync(xfc);
- 	return status;
- }
- 
-@@ -613,6 +622,7 @@
- 		xfc->unobscured = (xevent.xvisibility.state == VisibilityUnobscured);
- 		XSetWMProtocols(xfc->display, xfc->window->handle, &(xfc->WM_DELETE_WINDOW), 1);
- 		xfc->drawable = xfc->window->handle;
+@@ -615,0 +625 @@
 +        xf_ajr_init(xfc);
- 	}
- 	else
- 	{
-@@ -719,29 +729,6 @@
- 		XFreeModifiermap(xfc->modifierMap);
- 		xfc->modifierMap = NULL;
- 	}
--}
--
+@@ -724,23 +733,0 @@
 -void xf_toggle_fullscreen(xfContext* xfc)
 -{
 -	WindowStateChangeEventArgs e;
@@ -98,19 +62,12 @@
 -	EventArgsInit(&e, "xfreerdp");
 -	e.state = xfc->fullscreen ? FREERDP_WINDOW_STATE_FULLSCREEN : 0;
 -	PubSub_OnWindowStateChange(context->pubSub, context, &e);
- }
- 
- BOOL xf_toggle_control(xfContext* xfc)
-@@ -1680,7 +1667,8 @@
- 		if (xfc->window)
- 			xf_floatbar_hide_and_show(xfc->window->floatbar);
- 
+-}
+-
+@@ -1683 +1670,2 @@
 -		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE, INFINITE);
 +		waitStatus = WaitForMultipleObjects(nCount, handles, FALSE,
-+            (xfc->ajr_pending || xfc->ajr_local_pending) ? 100 : INFINITE);
- 
- 		if (waitStatus == WAIT_FAILED)
- 			break;
++            (xfc->ajr_pending || xfc->ajr_local_pending || xfc->ajr_bar_hide_due) ? 100 : INFINITE);
 --- a/client/X11/xf_event.c
 +++ b/client/X11/xf_event.c
 @@ -40,0 +41 @@
@@ -140,28 +97,28 @@
 +    memset(xfc->ajr_pressed, 0, sizeof(xfc->ajr_pressed));
 +    if (xfc->ajr_wait_keys) xfc->ajr_local_pending = xfc->ajr_wait_keys = FALSE;
 +
-@@ -591,0 +599 @@
+@@ -591,0 +601 @@
 +    xf_ajr_release_keyboard(xfc);
-@@ -594 +602 @@
+@@ -594 +604 @@
 -		XUngrabKeyboard(xfc->display, CurrentTime);
 +		xf_ajr_release_keyboard(xfc);
-@@ -620,0 +629,4 @@
+@@ -620,0 +631,4 @@
 +    if (!app && event->message_type == XInternAtom(xfc->display, "_AJR_CONTROL_V1", False))
 +    {
 +        return xf_ajr_control(xfc, event);
 +    }
-@@ -659,2 +671 @@
+@@ -659,2 +673 @@
 -			XGrabKeyboard(xfc->display, xfc->window->handle, TRUE, GrabModeAsync, GrabModeAsync,
 -			              CurrentTime);
 +			xf_ajr_update_keyboard(xfc);
-@@ -678 +689,3 @@
+@@ -678 +691,3 @@
 -		XUngrabKeyboard(xfc->display, CurrentTime);
 +        /* Fullscreen owns the keyboard even when the pointer reaches the bar
 +         * or another monitor. Only a state/focus change releases the grab. */
 +        xf_ajr_update_keyboard(xfc);
-@@ -705,0 +719 @@
+@@ -705,0 +721 @@
 +        if (event->width <= 0 || event->height <= 0) return TRUE;
-@@ -734,0 +749,7 @@
+@@ -734,0 +751,7 @@
 +        if (!xfc->fullscreen && !xfc->ajr_pending) {
 +            Window child; int x, y;
 +            XTranslateCoordinates(xfc->display, xfc->window->handle,
@@ -169,17 +126,18 @@
 +            xfc->savedPosX = x; xfc->savedPosY = y;
 +            xfc->savedWidth = event->width; xfc->savedHeight = event->height;
 +        }
-@@ -785 +806,2 @@
+@@ -785 +808,2 @@
 -	if (!app)
 +	if (!app) {
 +        xfc->ajr_grabbed = FALSE;
-@@ -786,0 +809 @@
+@@ -786,0 +811 @@
 +    }
-@@ -813,0 +837 @@
+@@ -813,0 +839 @@
 +    xf_ajr_release_keyboard(xfc);
-@@ -833,0 +858 @@
+@@ -833,0 +860 @@
 +    if (!app && event->atom == xfc->_NET_WM_STATE) xf_ajr_sync(xfc);
-@@ -1052,0 +1078,6 @@
+@@ -1052,0 +1080,7 @@
++    if (xf_ajr_bar_event(xfc, event, &status)) return status;
 +    if (getenv("AJR_DIAGNOSTIC") && (event->type == FocusIn || event->type == FocusOut ||
 +        event->type == MapNotify || event->type == UnmapNotify || event->type == KeyPress || event->type == KeyRelease))
 +        fprintf(stderr, "AJR_DIAG event=%d focusMode=%d focusDetail=%d focused=%d grabbed=%d fullscreen=%d\n",
@@ -188,18 +146,9 @@
 +                xfc->focused, xfc->ajr_grabbed, xfc->fullscreen);
 --- a/client/X11/xf_keyboard.c
 +++ b/client/X11/xf_keyboard.c
-@@ -39,6 +39,7 @@
- #include "xf_event.h"
- 
- #include "xf_keyboard.h"
+@@ -41,0 +42 @@
 +#include "ajr.h"
- 
- #include <freerdp/log.h>
- #define TAG CLIENT_TAG("x11")
-@@ -473,40 +474,9 @@
- 	XF_MODIFIER_KEYS mod = { 0 };
- 	xk_keyboard_get_modifier_keys(xfc, &mod);
- 
+@@ -476,18 +476,0 @@
 -	// remember state of RightCtrl to ungrab keyboard if next action is release of RightCtrl
 -	// do not return anything such that the key could be used by client if ungrab is not the goal
 -	if (keysym == XK_Control_R)
@@ -218,11 +167,7 @@
 -			xfc->ungrabKeyboardWithRightCtrl = FALSE;
 -	}
 -
- 	if (!xf_keyboard_execute_action_script(xfc, &mod, keysym))
- 	{
- 		return TRUE;
--	}
--
+@@ -499,13 +481,0 @@
 -	if (!xfc->remote_app && xfc->fullscreen_toggle)
 -	{
 -		if (keysym == XK_Return)
@@ -234,13 +179,9 @@
 -				return TRUE;
 -			}
 -		}
- 	}
- 
- 	if ((keysym == XK_c) || (keysym == XK_C))
-@@ -604,31 +574,9 @@
- 
- void xf_keyboard_handle_special_keys_release(xfContext* xfc, KeySym keysym)
- {
+-	}
+-
+@@ -607,25 +577,3 @@
 -	if (keysym != XK_Control_R)
 -		return;
 -
@@ -269,6 +210,3 @@
 +    /* No Right-Ctrl escape: Ctrl+Alt+Enter and the AJR Bar own local control. */
 +    WINPR_UNUSED(xfc);
 +    WINPR_UNUSED(keysym);
- }
- 
- BOOL xf_keyboard_set_indicators(rdpContext* context, UINT16 led_flags)

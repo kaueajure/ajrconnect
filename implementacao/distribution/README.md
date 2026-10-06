@@ -2,7 +2,7 @@
 
 Versão de teste. Consulte a versão na janela **Atualizações** do aplicativo.
 
-Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
+Cliente RDP com interface GTK4/libadwaita e barra de controles integrada ao cliente RDP.
 
 A interface V2 usa superfícies neutras e violeta como accent. As conexões salvas
 ficam na barra lateral, com busca por nome, servidor ou usuário. Use as abas
@@ -17,8 +17,8 @@ aparecem no rodapé durante a conexão. O tema escolhido é persistente.
 
 O instalador não bloqueia por distribuição, versão do GNOME, X11 ou Wayland.
 O binário fornecido é Linux x86_64 e requer GTK4/libadwaita, PyGObject,
-bibliotecas X11 e FreeRDP/WinPR 2.11.5. A AJR Bar é opcional e compatível
-com GNOME 46; em outros desktops, use os controles da janela do aplicativo.
+bibliotecas X11, Cairo/Pango e FreeRDP/WinPR 2.11.5. A AJR Bar é integrada
+ao cliente RDP. Atalhos locais usam a integração GNOME 46 ou o portal do sistema.
 Antes de instalar dependências, o instalador verifica se o binário corresponde
 à arquitetura do sistema. Antes de copiar o aplicativo, verifica também as
 bibliotecas vinculadas ao cliente, incluindo glibc, com `ldd`.
@@ -66,8 +66,9 @@ ative **Incluir versões de teste** e escolha **Verificar atualizações**.
 Encerre a conexão antes de escolher **Baixar e atualizar**. Depois da instalação,
 escolha **Reiniciar aplicativo**. O download confere os hashes SHA256 e o
 instalador preserva configurações e cria backup.
-Na primeira instalação ou na migração da extensão antiga, um único novo login
-pode ser necessário para ativar a ponte recarregável. O instalador informa esse caso.
+A AJR Bar agora pertence ao cliente RDP; não é preciso encerrar a sessão Linux.
+Para os atalhos locais, autorize o teclado quando o sistema solicitar e marque
+a opção de lembrar. Não será solicitada captura de tela ou acesso ao mouse.
 Abra AJR Connect pelo menu de aplicativos. Informe servidor, usuário, senha,
 monitor e, se desejar, pastas compartilhadas. As novas instalações começam
 sem servidor, usuário ou pastas configurados.
@@ -88,7 +89,8 @@ Em **Atalhos**, escolha encaminhar teclas ao Windows somente
 em tela cheia, também em janela ou manter atalhos no computador local.
 Os interruptores de **Alt+Tab**, **Windows/Super** (sozinha) e **Alt+F4**
 definem o destino individual: ativado para Windows, desativado para Linux.
-Prioridades individuais exigem AJR Bar atualizada e ativa no GNOME 46; sem essa integração,
+Para prioridades individuais, autorize o teclado no sistema quando solicitado.
+Sem essa autorização ou integração GNOME ativa,
 use todos no Windows ou mantenha os atalhos no computador local.
 Em **Atalhos personalizados → Adicionar atalho**, configure qualquer combinação
 para executar no Windows ou neste computador. As regras são salvas por conexão.
@@ -120,10 +122,10 @@ aplicativo**. O download mostra progresso, pode ser cancelado e é conferido por
 SHA256 antes da instalação. Falhas de instalação tentam restaurar o backup.
 As opções de verificação ao abrir e inclusão de versões de teste são globais.
 Também é possível fechar o aplicativo e executar novamente o instalador do
-pacote novo. Não precisa desinstalar. A barra usa uma
-ponte fixa e módulos recarregáveis, permitindo atualizar seu funcionamento sem
-reiniciar o desktop. Alterações excepcionais na ponte fixa ainda podem exigir
-uma nova entrada na sessão. Atualizações não encerram sessões RDP abertas.
+pacote novo. Não precisa desinstalar. A barra pertence ao cliente RDP, sem
+dependência de extensão GNOME para exibir os controles. Autorize o teclado
+no sistema para usar atalhos locais quando a integração GNOME estiver ausente.
+Atualizações não encerram sessões RDP abertas.
 
 Em **Conexão → Reconectar automaticamente**, ative ou desative a recuperação
 por perfil. Uma queda de rede após conectar inicia até cinco tentativas, com

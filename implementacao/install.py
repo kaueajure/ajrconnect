@@ -159,7 +159,7 @@ def install_files():
     if UPDATING:
         atomic_json(UPDATE_JOURNAL, dict(backup=str(BACKUP)))
     APP.mkdir(parents=True, exist_ok=True)
-    for name in ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'reconnect.py', 'updates.py',
+    for name in ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_portal.py', 'reconnect.py', 'updates.py',
                  'update_dialog.py', 'version.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
         shutil.copy2(BASE / name, APP / name)
     shutil.copytree(BASE / 'assets', APP / 'assets', dirs_exist_ok=True)
@@ -209,7 +209,7 @@ def install_files():
             integration_status = 'loader-restart-required'
     Gio.Settings.sync()
     (DATA / 'last-install.json').write_text(json.dumps({'version': 6, 'release': APP_VERSION, 'backup': str(BACKUP),
-        'needs_shell_restart': integration_status in ('restart-required', 'loader-restart-required', 'not-discovered'),
+        'needs_shell_restart': False,
         'integration_status': integration_status,
         'bridge_loader_changed': loader_changed if extension_managed else False,
         'desktop_managed': True,
@@ -220,20 +220,9 @@ def install_files():
     print('Instalado em:', APP)
     print('Backup:', BACKUP)
     print('Feche e abra o AJR Connect para usar o aplicativo atualizado. Reconecte o Windows para usar o cliente atualizado.')
-    if integration_status == 'ready':
-        print('AJR Bar atualizada na sessão atual. Não é necessário sair do Zorin.')
-    elif integration_status == 'restart-required':
-        print('O aplicativo já está atualizado. A troca da extensão antiga pela ponte recarregável exige uma nova entrada na sessão; as próximas atualizações da barra não exigirão isso.')
-    elif integration_status == 'loader-restart-required':
-        print('A parte fixa da integração mudou. Essa alteração excepcional precisa de uma nova entrada na sessão para concluir a atualização da barra.')
-    elif integration_status == 'not-discovered':
-        print('Aplicativo instalado. Para usar a AJR Bar pela primeira vez, entre novamente na sessão; as próximas atualizações serão aplicadas na sessão atual.')
-    elif integration_status == 'failed':
-        print('O aplicativo foi atualizado, mas a AJR Bar não confirmou a atualização. Use os controles do aplicativo e execute o instalador novamente para repetir a tentativa.')
-    elif extension_managed:
-        print('Aplicativo atualizado. A AJR Bar será ativada na próxima entrada no desktop; os controles do aplicativo já estão disponíveis.')
-    else:
-        print('AJR Bar indisponível neste desktop. Use os controles do aplicativo e Ctrl+Alt+Enter.')
+    print('A AJR Bar agora faz parte do cliente RDP. Não é necessário sair da sessão Linux.')
+    if integration_status != 'ready':
+        print('Ao reabrir, autorize o teclado no sistema para usar atalhos locais e remotos juntos. Não será solicitada captura de tela.')
     return 0
 
 if __name__ == '__main__':

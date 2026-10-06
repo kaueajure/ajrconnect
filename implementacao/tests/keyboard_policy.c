@@ -1,5 +1,6 @@
 /* Exercise the actual frontend keyboard handlers on an isolated X server. */
 #include <assert.h>
+#include <cairo/cairo-xlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <X11/Xatom.h>
@@ -183,6 +184,11 @@ int main(void)
     event_state(&xfc, KeyPress, XK_Tab, Mod1Mask | ShiftMask);
     event_state(&xfc, KeyRelease, XK_Tab, Mod1Mask | ShiftMask);
     assert(sent == before); /* Swallow repeat and matching release. */
+    event(&xfc, KeyPress, XK_Alt_L);
+    event_state(&xfc, KeyPress, XK_Tab, Mod1Mask);
+    event_state(&xfc, KeyRelease, XK_Tab, Mod1Mask);
+    event(&xfc, KeyRelease, XK_Alt_L);
+    assert(sent == before); /* No portal replay modifier leaks to Windows. */
     event(&xfc, KeyRelease, XK_Alt_L);
     probe(&xfc, other, FALSE);
     resume(&xfc);
@@ -340,6 +346,67 @@ int main(void)
     fullscreen_property(&xfc, FALSE);
     assert(!xfc.ajr_grabbed);
     probe(&xfc, other, FALSE);
+    /* Native toolbar: a child of the session, no desktop extension or RDP. */
+    setenv("AJR_NATIVE_BAR", "1", 1);
+    const char* bar_width = getenv("AJR_BAR_TEST_WIDTH");
+    if (bar_width) {
+        window.width = atoi(bar_width);
+        XResizeWindow(xfc.display, window.handle, window.width, window.height);
+    }
+    xf_ajr_bar_init(&xfc);
+    assert(xfc.ajr_bar);
+    fullscreen_property(&xfc, TRUE);
+    xf_ajr_bar_sync(&xfc);
+    assert(xfc.ajr_bar_mapped && !xfc.ajr_bar_expanded);
+    XEvent bar_event = {0};
+    bar_event.xcrossing.type = EnterNotify;
+    bar_event.xcrossing.window = xfc.ajr_bar;
+    bar_event.xcrossing.x = 150;
+    before = sent;
+    assert(xf_event_process(&instance, &bar_event));
+    assert(xfc.ajr_bar_expanded && sent == before && xfc.ajr_grabbed);
+    XSync(xfc.display, False);
+    const char* preview = getenv("AJR_BAR_PREVIEW");
+    if (preview) {
+        cairo_surface_t* screen = cairo_xlib_surface_create(xfc.display, xfc.ajr_bar,
+            DefaultVisual(xfc.display, DefaultScreen(xfc.display)), xfc.ajr_bar_width, xfc.ajr_bar_height);
+        cairo_surface_t* copy = cairo_image_surface_create(CAIRO_FORMAT_RGB24, xfc.ajr_bar_width, xfc.ajr_bar_height);
+        cairo_t* cr = cairo_create(copy);
+        cairo_set_source_surface(cr, screen, 0, 0); cairo_paint(cr);
+        assert(cairo_surface_write_to_png(copy, preview) == CAIRO_STATUS_SUCCESS);
+        cairo_destroy(cr); cairo_surface_destroy(copy); cairo_surface_destroy(screen);
+    }
+    /* No press, right click and release on a different button do nothing. */
+    bar_event.xbutton.type = ButtonRelease; bar_event.xbutton.button = Button1;
+    bar_event.xbutton.x = xfc.ajr_bar_width - 20;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonPress; bar_event.xbutton.button = Button3;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonRelease;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonPress; bar_event.xbutton.button = Button1;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonRelease; bar_event.xbutton.x = 10;
+    assert(xf_event_process(&instance, &bar_event));
+    /* Restore and disconnect never reach the remote input callbacks. */
+    bar_event.xbutton.type = ButtonPress; bar_event.xbutton.x = xfc.ajr_bar_width / 2;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonRelease;
+    assert(xf_event_process(&instance, &bar_event));
+    assert(!xfc.fullscreen && sent == before);
+    fullscreen_property(&xfc, TRUE);
+    xfc.ajr_pending = FALSE; /* Xvfb has no WM to acknowledge the restore geometry. */
+    xf_ajr_sync(&xfc);
+    bar_event.xcrossing.type = EnterNotify;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonPress; bar_event.xbutton.x = xfc.ajr_bar_width - 20;
+    assert(xf_event_process(&instance, &bar_event));
+    bar_event.xbutton.type = ButtonRelease;
+    assert(!xf_event_process(&instance, &bar_event));
+    assert(sent == before);
+    xfc.focused = FALSE; xf_ajr_bar_sync(&xfc);
+    assert(!xfc.ajr_bar_mapped);
+    XDestroyWindow(xfc.display, xfc.ajr_bar); xfc.ajr_bar = 0;
     XDestroyWindow(xfc.display, window.handle);
     XFreeModifiermap(xfc.modifierMap);
     PubSub_Free(xfc.context.pubSub);

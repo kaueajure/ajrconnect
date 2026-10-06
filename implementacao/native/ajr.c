@@ -152,6 +152,7 @@ void xf_ajr_init(xfContext* xfc)
     XChangeProperty(xfc->display, xfc->window->handle,
         XInternAtom(xfc->display, "_AJR_CONTROL_VERSION", False), XA_CARDINAL,
         32, PropModeReplace, (unsigned char*)&version, 1);
+    xf_ajr_bar_init(xfc);
     publish(xfc);
 }
 
@@ -162,7 +163,7 @@ static void local_shortcut(xfContext* xfc, unsigned long action, BOOL reverse)
     /* Suppress recapture until the GUI has handed the action to GNOME Shell.
      * A bounded timeout recovers if the GUI/integration has disappeared. */
     xfc->ajr_local_pending = TRUE;
-    xfc->ajr_local_deadline = GetTickCount64() + 2000;
+    xfc->ajr_local_deadline = GetTickCount64() + 10000;
     xf_keyboard_release_all_keypress(xfc);
     xf_ajr_release_keyboard(xfc);
     XChangeProperty(xfc->display, xfc->window->handle,
@@ -174,7 +175,7 @@ static void local_shortcut(xfContext* xfc, unsigned long action, BOOL reverse)
 static void publish_local_accelerator(xfContext* xfc)
 {
     xfc->ajr_wait_keys = FALSE;
-    xfc->ajr_local_deadline = GetTickCount64() + 2000;
+    xfc->ajr_local_deadline = GetTickCount64() + 10000;
     xf_ajr_release_keyboard(xfc);
     XChangeProperty(xfc->display, xfc->window->handle,
         XInternAtom(xfc->display, "_AJR_LOCAL_ACCELERATORS_V2", False), XA_CARDINAL, 32,
@@ -188,7 +189,13 @@ BOOL xf_ajr_key(xfContext* xfc, const XKeyEvent* event, KeySym keysym, BOOL down
     BYTE code = event->keycode;
     /* Consume compositor replay while the local action is pending. Never let
      * a shortcut without a desktop binding fall through to the RDP server. */
-    if (xfc->ajr_local_pending && xfc->ajr_local_accelerator[0] && !xfc->ajr_wait_keys) return TRUE;
+    if (xfc->ajr_local_pending && !xfc->ajr_wait_keys) {
+        if (!down) {
+            xfc->ajr_swallowed[code] = FALSE;
+            if (code == xfc->ajr_super_key) xfc->ajr_super_key = 0;
+        }
+        return TRUE;
+    }
     xfc->ajr_pressed[code] = down;
     if (xfc->ajr_wait_keys)
     {
@@ -388,6 +395,7 @@ void xf_ajr_sync(xfContext* xfc)
         fprintf(stderr, "AJR external fullscreen reconciled=%d\n", actual);
     }
     xf_ajr_update_keyboard(xfc);
+    xf_ajr_bar_sync(xfc);
 }
 
 BOOL xf_ajr_control(xfContext* xfc, const XClientMessageEvent* event)
