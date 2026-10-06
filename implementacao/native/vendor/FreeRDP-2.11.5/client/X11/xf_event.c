@@ -594,6 +594,8 @@ static BOOL xf_event_FocusOut(xfContext* xfc, const XFocusOutEvent* event, BOOL 
 
     xfc->ajr_shortcut_down = 0;
     memset(xfc->ajr_swallowed, 0, sizeof(xfc->ajr_swallowed));
+    memset(xfc->ajr_pressed, 0, sizeof(xfc->ajr_pressed));
+    if (xfc->ajr_wait_keys) xfc->ajr_local_pending = xfc->ajr_wait_keys = FALSE;
 
 	xfc->focused = FALSE;
     xf_ajr_release_keyboard(xfc);

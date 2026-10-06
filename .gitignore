@@ -11,6 +11,11 @@
 !/implementacao/ajr_app.py
 !/implementacao/ui.py
 !/implementacao/dialogs.py
+!/implementacao/keyboard.py
+!/implementacao/version.py
+!/implementacao/reconnect.py
+!/implementacao/updates.py
+!/implementacao/update_dialog.py
 !/implementacao/DESIGN.md
 !/implementacao/assets/
 !/implementacao/core.py
@@ -66,6 +71,8 @@
 !/implementacao/tests/test_bootstrap.py
 !/implementacao/tests/test_dependencies.py
 !/implementacao/tests/test_preferences.py
+!/implementacao/tests/test_updates.py
+!/implementacao/tests/test_reconnect.py
 !/implementacao/tests/test_integration_update.py
 !/implementacao/tests/check_live_update.py
 !/implementacao/tests/check_desktop_ui.py

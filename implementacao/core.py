@@ -20,8 +20,10 @@ DEFAULT = dict(server='', user='', shares=[], quality=0,
     clipboard=True, remember=False, keyboard_mode='fullscreen',
     fullscreen_shortcut='<Control><Alt>Return',
     remote_alt_tab=True, remote_super=True, remote_alt_f4=True,
-    profiles=[], active_profile='', appearance='dark')
-PROFILE_KEYS = tuple(k for k in DEFAULT if k not in ('profiles', 'active_profile', 'appearance'))
+    keyboard_shortcuts=[], auto_reconnect=True,
+    profiles=[], active_profile='', appearance='dark', check_updates=True, update_prereleases=True)
+PROFILE_KEYS = tuple(k for k in DEFAULT if k not in (
+    'profiles', 'active_profile', 'appearance', 'check_updates', 'update_prereleases'))
 
 
 def atomic_json(path, data):
@@ -45,7 +47,7 @@ def normalize_settings(data):
     for key in ('server', 'user', 'monitor', 'monitor_connector'):
         cfg[key] = str(cfg[key]) if isinstance(cfg[key], (str, int)) else DEFAULT[key]
     for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember',
-                'remote_alt_tab', 'remote_super', 'remote_alt_f4'):
+                'remote_alt_tab', 'remote_super', 'remote_alt_f4', 'auto_reconnect'):
         cfg[key] = cfg[key] if isinstance(cfg[key], bool) else DEFAULT[key]
     if not isinstance(data, dict) or 'keyboard_mode' not in data:
         cfg['keyboard_mode'] = 'fullscreen' if cfg['capture_keyboard'] else 'local'
@@ -55,6 +57,11 @@ def normalize_settings(data):
     shortcut = cfg['fullscreen_shortcut']
     if not isinstance(shortcut, str) or not shortcut or len(shortcut) > 128:
         cfg['fullscreen_shortcut'] = DEFAULT['fullscreen_shortcut']
+    cfg['keyboard_shortcuts'] = [dict(accelerator=rule['accelerator'], remote=rule['remote'])
+        for rule in cfg['keyboard_shortcuts'] if isinstance(rule, dict)
+        and isinstance(rule.get('accelerator'), str) and 0 < len(rule['accelerator']) <= 128
+        and isinstance(rule.get('remote'), bool)][:128] \
+        if isinstance(cfg['keyboard_shortcuts'], list) else []
     try:
         cfg['quality'] = max(0, min(2, int(cfg['quality'])))
     except (ValueError, TypeError):
@@ -76,6 +83,8 @@ def load_cfg():
     if isinstance(data, dict):
         appearance = data.get('appearance', 'dark')
         cfg['appearance'] = appearance if appearance in ('dark', 'light', 'system') else 'dark'
+        for key in ('check_updates', 'update_prereleases'):
+            cfg[key] = data[key] if isinstance(data.get(key), bool) else DEFAULT[key]
         seen = set()
         for profile in data.get('profiles', []) if isinstance(data.get('profiles'), list) else []:
             if not isinstance(profile, dict) or not isinstance(profile.get('id'), str) \
@@ -96,8 +105,11 @@ def load_cfg():
 def save_cfg(cfg):
     # Explicit allowlist: credentials never enter the JSON, even nested in profiles.
     data = {k: copy.deepcopy(cfg.get(k, v)) for k, v in DEFAULT.items()}
+    data['keyboard_shortcuts'] = normalize_settings(data)['keyboard_shortcuts']
     data['profiles'] = [{k: copy.deepcopy(p[k]) for k in ('id', 'name', *PROFILE_KEYS)
                          if k in p} for p in data['profiles']]
+    for profile in data['profiles']:
+        profile['keyboard_shortcuts'] = normalize_settings(profile)['keyboard_shortcuts']
     atomic_json(CFG_FILE, data)
 
 
@@ -168,6 +180,7 @@ def build_command(cfg, monitor, native=NATIVE):
            f"/w:{monitor['width']}", f"/h:{monitor['height']}",
            f'/smart-sizing:{w}x{h}', f'/window-position:{x}x{y}',
            '/network:broadband', '/gdi:sw',
+           '-auto-reconnect',
            '/bpp:24' if cfg['quality'] == 2 else '/bpp:32',
            '+grab-keyboard' if cfg.get('keyboard_mode', 'fullscreen') != 'local'
                 and cfg['capture_keyboard'] else '-grab-keyboard',

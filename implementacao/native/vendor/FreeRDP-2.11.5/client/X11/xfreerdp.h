@@ -130,6 +130,10 @@ struct xf_context
     unsigned int ajr_fullscreen_mods, ajr_remote_keys;
     BYTE ajr_shortcut_down, ajr_super_key;
     BOOL ajr_swallowed[256];
+    BOOL ajr_pressed[256], ajr_wait_keys;
+    unsigned int ajr_rule_count;
+    struct { KeySym key; unsigned int mods; BOOL remote; } ajr_rules[128];
+    unsigned long ajr_local_accelerator[3];
     UINT64 ajr_local_deadline;
     UINT32 ajr_token;
     UINT64 ajr_deadline;

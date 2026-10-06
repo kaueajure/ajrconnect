@@ -1,6 +1,6 @@
 --- a/client/X11/xfreerdp.h
 +++ b/client/X11/xfreerdp.h
-@@ -124,6 +124,17 @@
+@@ -124,6 +124,21 @@
  {
  	rdpContext context;
  	DEFINE_RDP_CLIENT_COMMON();
@@ -10,6 +10,10 @@
 +    unsigned int ajr_fullscreen_mods, ajr_remote_keys;
 +    BYTE ajr_shortcut_down, ajr_super_key;
 +    BOOL ajr_swallowed[256];
++    BOOL ajr_pressed[256], ajr_wait_keys;
++    unsigned int ajr_rule_count;
++    struct { KeySym key; unsigned int mods; BOOL remote; } ajr_rules[128];
++    unsigned long ajr_local_accelerator[3];
 +    UINT64 ajr_local_deadline;
 +    UINT32 ajr_token;
 +    UINT64 ajr_deadline;
@@ -130,9 +134,11 @@
 @@ -588 +592 @@
 -	if (event->mode == NotifyUngrab)
 +	if (event->mode == NotifyGrab || event->mode == NotifyUngrab)
-@@ -590,0 +595,3 @@
+@@ -590,0 +595,5 @@
 +    xfc->ajr_shortcut_down = 0;
 +    memset(xfc->ajr_swallowed, 0, sizeof(xfc->ajr_swallowed));
++    memset(xfc->ajr_pressed, 0, sizeof(xfc->ajr_pressed));
++    if (xfc->ajr_wait_keys) xfc->ajr_local_pending = xfc->ajr_wait_keys = FALSE;
 +
 @@ -591,0 +599 @@
 +    xf_ajr_release_keyboard(xfc);

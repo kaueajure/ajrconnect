@@ -11,10 +11,11 @@ import tarfile
 import tempfile
 
 BASE = Path(__file__).resolve().parent
-RUNTIME_FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
+RUNTIME_FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
                  'enable-extension.py', 'ajr-connect.desktop.in', 'install.py',
                  'rollback.py', 'check_compatibility.py')
 RUNTIME_FILES += ('dependencies.py',)
+RUNTIME_FILES += ('version.py', 'reconnect.py', 'updates.py', 'update_dialog.py')
 SOURCE_FILES = ('DESIGN.md', 'native/build.py', 'native/ajr.c', 'native/ajr.h',
                 'native/ajr-freerdp.patch', 'tests/test_compatibility.py',
                 'tests/test_distribution.py')
@@ -22,6 +23,7 @@ SOURCE_FILES += ('tests/test_dependencies.py',)
 SOURCE_FILES += ('tests/test_preferences.py', 'tests/check_keyboard_policy.py',
                  'tests/keyboard_policy.c')
 SOURCE_FILES += ('tests/test_integration_update.py', 'tests/check_live_update.py', 'tests/check_desktop_ui.py')
+SOURCE_FILES += ('tests/test_updates.py', 'tests/test_reconnect.py')
 SOURCE_TREES = ('native/vendor/FreeRDP-2.11.5/client/X11',
                 'native/vendor/FreeRDP-2.11.5/resources',
                 'native/sdk/usr/include/freerdp2', 'native/sdk/usr/include/winpr2')

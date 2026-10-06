@@ -6,24 +6,17 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Gdk, Gio, GLib
 from core import DEFAULT
-
-
-def shortcut_parts(value):
-    valid, key, modifiers = Gtk.accelerator_parse(value)
-    allowed = Gdk.ModifierType.SHIFT_MASK | Gdk.ModifierType.CONTROL_MASK | \
-              Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK
-    if not valid or not key or not Gtk.accelerator_valid(key, modifiers) or modifiers & ~allowed or not modifiers & (
-            Gdk.ModifierType.CONTROL_MASK | Gdk.ModifierType.ALT_MASK | Gdk.ModifierType.SUPER_MASK):
-        raise ValueError('Escolha uma combinação com Ctrl, Alt ou Super e uma tecla.')
-    return Gdk.keyval_to_lower(key), modifiers
+from keyboard import PRESETS, shortcut_parts, shortcut_text, parse_shortcut_text
 
 
 class ShortcutEditor(Adw.Window):
-    def __init__(self, parent, current, callback):
-        super().__init__(transient_for=parent, modal=True, title='Atalho de tela cheia')
+    def __init__(self, parent, current, callback, *, routing=False):
+        super().__init__(transient_for=parent, modal=True,
+                         title='Regra de teclado' if routing else 'Atalho de tela cheia')
         self.add_css_class('ajr-dialog')
         self.callback, self.value = callback, current
-        self.set_default_size(420, 240)
+        self.routing = routing
+        self.set_default_size(480, 360 if routing else 280)
         view = Adw.ToolbarView()
         view.add_top_bar(Adw.HeaderBar())
         self.set_content(view)
@@ -31,18 +24,35 @@ class ShortcutEditor(Adw.Window):
         for side in ('top', 'bottom', 'start', 'end'):
             getattr(box, f'set_margin_{side}')(24)
         view.set_content(box)
-        box.append(Gtk.Label(label='Pressione a combinação desejada com Ctrl, Alt ou Super.', wrap=True))
-        self.preview = Gtk.Label(label=Gtk.accelerator_get_label(*shortcut_parts(current)), wrap=True)
+        box.append(Gtk.Label(label='Grave ou digite a combinação.', wrap=True))
+        self.preview = Gtk.Label(label=Gtk.accelerator_get_label(*shortcut_parts(current, routing=routing)), wrap=True)
         self.preview.add_css_class('ajr-shortcut-preview')
         box.append(self.preview)
+        self.record = Gtk.ToggleButton(label='Gravar combinação', active=True)
+        box.append(self.record)
+        self.connect('map', lambda *_: self.record.grab_focus())
+        group = Adw.PreferencesGroup()
+        self.input = Adw.EntryRow(title='Combinação', text=shortcut_text(current))
+        group.add(self.input)
+        if routing:
+            preset = Adw.ComboRow(title='Sugestões', model=Gtk.StringList.new(
+                ['Personalizado'] + [title for title, _value in PRESETS]))
+            preset.connect('notify::selected', lambda row, *_: self.set_shortcut(
+                PRESETS[row.get_selected() - 1][1]) if row.get_selected() else None)
+            group.add(preset)
+            self.destination = Adw.ComboRow(title='Executar em',
+                model=Gtk.StringList.new(['Este computador', 'Windows']))
+            group.add(self.destination)
+        box.append(group)
         self.error = Gtk.Label(wrap=True)
         self.error.add_css_class('error')
         box.append(self.error)
         actions = Gtk.Box(spacing=8, homogeneous=True)
         box.append(actions)
-        reset = Gtk.Button(label='Restaurar padrão')
-        reset.connect('clicked', lambda *_: self.set_shortcut(DEFAULT['fullscreen_shortcut']))
-        actions.append(reset)
+        if not routing:
+            reset = Gtk.Button(label='Restaurar padrão')
+            reset.connect('clicked', lambda *_: self.set_shortcut(DEFAULT['fullscreen_shortcut']))
+            actions.append(reset)
         save = Gtk.Button(label='Salvar atalho')
         save.add_css_class('suggested-action')
         save.connect('clicked', lambda *_: self.save())
@@ -54,10 +64,18 @@ class ShortcutEditor(Adw.Window):
 
     def set_shortcut(self, value):
         self.value = value
-        self.preview.set_text(Gtk.accelerator_get_label(*shortcut_parts(value)))
+        self.preview.set_text(Gtk.accelerator_get_label(*shortcut_parts(value, routing=self.routing)))
+        self.input.set_text(shortcut_text(value))
+        self.record.set_active(False)
         self.error.set_text('')
 
     def key_pressed(self, _controller, key, _code, state):
+        # Manual input also works when the desktop reserves the shortcut.
+        focus = self.get_focus()
+        if focus and (focus == self.input or focus.is_ancestor(self.input)):
+            return False
+        if not self.record.get_active() or focus and focus != self.record:
+            return False
         if Gdk.keyval_name(key) in ('Control_L', 'Control_R', 'Alt_L', 'Alt_R',
                 'Super_L', 'Super_R', 'Shift_L', 'Shift_R', 'Meta_L', 'Meta_R'):
             return True
@@ -66,12 +84,13 @@ class ShortcutEditor(Adw.Window):
             if key == Gdk.KEY_Escape:
                 self.close()
                 return True
-            return False  # Keep Tab navigation and keyboard activation of buttons.
+            if not self.routing or key in (Gdk.KEY_Tab, Gdk.KEY_Return, Gdk.KEY_space):
+                return False  # Keep keyboard navigation and activation of buttons.
         if key == Gdk.KEY_ISO_Left_Tab:
             key = Gdk.KEY_Tab
         value = Gtk.accelerator_name(Gdk.keyval_to_lower(key), modifiers)
         try:
-            shortcut_parts(value)
+            shortcut_parts(value, routing=self.routing)
         except ValueError as exc:
             self.error.set_text(str(exc))
         else:
@@ -79,7 +98,17 @@ class ShortcutEditor(Adw.Window):
         return True
 
     def save(self):
-        self.callback(self.value)
+        try:
+            self.value = parse_shortcut_text(self.input.get_text(), routing=self.routing)
+            if self.routing:
+                self.callback(dict(accelerator=self.value,
+                                   remote=self.destination.get_selected() == 1))
+            else:
+                self.callback(self.value)
+        except ValueError as exc:
+            self.error.set_text(str(exc))
+            self.input.grab_focus()
+            return
         self.close()
 
 
@@ -182,5 +211,3 @@ class ShareEditor(Adw.Window):
             return
         self.callback(dict(name=normalize_share_name(self.name.get_text()), path=str(path.resolve())))
         self.close()
-
-

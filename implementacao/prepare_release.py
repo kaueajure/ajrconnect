@@ -5,9 +5,10 @@ import argparse
 import hashlib
 import re
 import tarfile
+from version import APP_VERSION
 
 BASE = Path(__file__).resolve().parent
-TAG = 'v6.0.0-beta.6'
+TAG = 'v' + APP_VERSION
 ASSETS = ('ajr-connect-6-linux-x86_64.tar.gz', 'ajr-connect-6-sources.tar.gz')
 
 
@@ -34,6 +35,16 @@ e AJR Bar para controlar sessões Windows no GNOME 46.
 
 ## Mudanças desta versão
 
+- Atualização pelo próprio aplicativo: consulta de versões, aviso ao abrir,
+  download com progresso e cancelamento, verificação SHA256 e reinício ao concluir.
+  O instalador preserva configurações e usa backup para recuperar falhas.
+- Reconexão automática por conexão: até cinco tentativas após falhas de rede,
+  espera visível no rodapé e cancelamento. Senhas são reutilizadas somente em
+  memória; logoff, erros de autenticação e desconexões voluntárias não repetem.
+- Navegação e controles fixos, com rolagem independente em cada área e textos
+  limitados às configurações e aos estados do aplicativo.
+- Regras de teclado adicionais por conexão, com gravação, entrada manual,
+  sugestões e escolha do destino Windows ou computador local.
 - Interface reformulada com identidade própria em grafite e violeta, temas claro
   e escuro com preferência persistente e conexões salvas com busca na barra lateral.
 - Conexão, tela/teclado e compartilhamento têm áreas separadas. Em janelas menores,
@@ -56,7 +67,7 @@ e AJR Bar para controlar sessões Windows no GNOME 46.
 - A captura de teclado pode valer somente em tela cheia, também em janela ou
   permanecer no computador local. Alt+Tab, Windows/Super sozinha e Alt+F4 têm
   prioridades individuais; essa combinação exige AJR Bar ativa no GNOME 46.
-  Super+R e outras combinações com Super seguem a captura geral do teclado.
+  Combinações sem regra seguem a captura geral do teclado.
 - A AJR Bar usa uma ponte fixa e módulos recarregáveis para aplicar atualizações
   na sessão atual. A primeira instalação, a migração da extensão antiga e
   mudanças excepcionais na ponte ainda podem exigir um novo login. O instalador
@@ -98,9 +109,13 @@ ou a floatbar visual nativa do FreeRDP.
 ## Estado da validação
 
 Esta é uma versão de teste. A instalação em um Zorin recém-instalado ainda
-não foi validada. Foram aprovados 51 testes automatizados, incluindo perfis,
+não foi validada. Foram aprovados 69 testes automatizados, incluindo perfis,
 busca e navegação responsiva, temas, seletor de pastas, gravação do atalho, atualização da integração, preservação
 de configurações e instalação/restauração em diretórios de usuário temporários.
+Os fluxos novos de atualização e reconexão foram exercitados com downloads e
+quedas simulados, incluindo cancelamento, erros de senha, limite de tentativas,
+integridade do pacote e recuperação após falha de escrita. A reconexão automática
+ainda precisa ser validada contra um servidor Windows real.
 O teste nativo de teclado passou em Xvfb. Em uma sessão GNOME 46 isolada, a
 atualização real da barra, a restauração de módulos anteriores e a recuperação
 de falhas de importação/ativação passaram sem reiniciar o GNOME Shell.

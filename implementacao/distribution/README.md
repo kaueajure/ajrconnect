@@ -1,6 +1,6 @@
 # AJR Connect 6
 
-Versão de teste: **6.0.0-beta.6**.
+Versão de teste. Consulte a versão na janela **Atualizações** do aplicativo.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles para GNOME 46.
 
@@ -83,7 +83,10 @@ Os interruptores de **Alt+Tab**, **Windows/Super** (sozinha) e **Alt+F4**
 definem o destino individual: ativado para Windows, desativado para Linux.
 Prioridades individuais exigem AJR Bar atualizada e ativa no GNOME 46; sem essa integração,
 use todos no Windows ou mantenha os atalhos no computador local.
-Super+R e outras combinações com Super seguem a captura geral. Atalhos
+Em **Outras combinações → Adicionar atalho**, configure qualquer combinação
+para executar no Windows ou neste computador. As regras são salvas por conexão.
+Atalhos locais precisam estar configurados nas preferências de teclado do Linux.
+Combinações sem regra seguem a captura geral. Atalhos
 reservados pelo desktop podem ter prioridade quando a captura está desativada.
 Reconecte depois de mudar as preferências de teclado.
 
@@ -99,11 +102,23 @@ ficam no chaveiro GNOME. A instalação preserva configurações existentes e
 cria um backup dos componentes substituídos e das configurações GNOME afetadas.
 Remove somente o atalho GNOME Ctrl+Alt+Enter que conflita com o cliente.
 
-Para atualizar, desconecte a sessão Windows, feche o aplicativo e execute
-novamente o instalador do pacote novo. Não precisa desinstalar. A barra usa uma
+Para atualizar, desconecte a sessão Windows e abra **Atualizações** pelo ícone
+do cabeçalho. Clique em **Baixar e atualizar** e, ao concluir, em **Reiniciar
+aplicativo**. O download mostra progresso, pode ser cancelado e é conferido por
+SHA256 antes da instalação. Falhas de instalação tentam restaurar o backup.
+As opções de verificação ao abrir e inclusão de versões de teste são globais.
+Também é possível fechar o aplicativo e executar novamente o instalador do
+pacote novo. Não precisa desinstalar. A barra usa uma
 ponte fixa e módulos recarregáveis, permitindo atualizar seu funcionamento sem
 reiniciar o desktop. Alterações excepcionais na ponte fixa ainda podem exigir
 uma nova entrada na sessão. Atualizações não encerram sessões RDP abertas.
+
+Em **Conexão → Reconectar automaticamente**, ative ou desative a recuperação
+por perfil. Uma queda de rede após conectar inicia até cinco tentativas, com
+esperas de 2, 4, 8, 16 e 30 segundos. O rodapé mostra o progresso e permite
+**Cancelar reconexão**. Erros de senha, logoff e desconexão voluntária não
+iniciam novas tentativas. A senha da sessão fica apenas em memória durante a
+conexão e a recuperação; não entra no JSON nem nos registros.
 
 ## Restaurar
 

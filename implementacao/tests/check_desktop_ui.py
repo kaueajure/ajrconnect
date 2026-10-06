@@ -44,6 +44,9 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
         cfg.update(active_profile='', server=server, user=user)
         gui.store_profile(cfg, name)
     gui.select_profile(cfg, cfg['profiles'][0]['id'])
+    cfg['keyboard_shortcuts'] = [dict(accelerator='<Control><Alt>Left', remote=False),
+                                dict(accelerator='<Control><Alt>Right', remote=False),
+                                dict(accelerator='<Super>d', remote=True)]
     gui.save_cfg(cfg)
     win = MainWindow(app)
     win.set_default_size(1120, 880)
@@ -55,8 +58,20 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     capture(win, 'ajr-connect-dark')
     win.ui.toggle_theme()
     capture(win, 'ajr-connect-light')
+    win._available_release = gui.updates.Release('v6.0.0-beta.8', 100)
+    with patch.object(gui.updates, 'installed_application', return_value=True):
+        win.open_updates()
+        capture(win._update_window, 'ajr-connect-updates')
+    win._update_window.close()
     win.ui.show_page('display')
     capture(win, 'ajr-connect-keyboard')
+    adjustment = win.ui.page_scrolls['display'].get_vadjustment()
+    adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+    capture(win, 'ajr-connect-shortcuts')
+    win.edit_keyboard_rule(0)
+    editor = next(window for window in Gtk.Window.get_toplevels() if window.get_title() == 'Regra de teclado')
+    capture(editor, 'ajr-connect-shortcut-editor')
+    editor.close()
     win.ui.show_page('sharing')
     capture(win, 'ajr-connect-sharing')
     win.ui.toggle_theme()
@@ -67,9 +82,14 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     capture(win, 'ajr-connect-compact')
     win.ui.sidebar_toggle.set_active(True)
     capture(win, 'ajr-connect-sidebar')
+    win.ui.sidebar_toggle.set_active(False)
+    win._retry_plan = gui.RetryPlan(delays=(30,) * 5)
+    win.schedule_reconnect()
+    capture(win, 'ajr-connect-reconnecting')
+    win.cancel_connection()
     win.close()
     drain()
-print('PASS: desktop, light/dark, keyboard, sharing and compact-sidebar captures')
+print('PASS: desktop, light/dark, shortcuts, updates, reconnecting and compact-sidebar captures')
 '''
 
 

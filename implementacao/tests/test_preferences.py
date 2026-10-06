@@ -16,6 +16,27 @@ import core
 
 
 class ProfileTests(unittest.TestCase):
+    def test_shortcut_rules_are_isolated_and_filter_nested_secrets(self):
+        cfg = copy.deepcopy(core.DEFAULT)
+        cfg.update(server='one.example', user='first',
+                   keyboard_shortcuts=[dict(accelerator='<Control><Alt>Left', remote=False, password='discard')])
+        first = core.store_profile(cfg, 'Primeiro')['id']
+        cfg.update(active_profile='', server='two.example', keyboard_shortcuts=[])
+        core.store_profile(cfg, 'Segundo')
+        core.select_profile(cfg, first)
+        self.assertEqual(len(cfg['keyboard_shortcuts']), 1)
+        cfg['keyboard_shortcuts'][0]['remote'] = True
+        self.assertFalse(cfg['profiles'][0]['keyboard_shortcuts'][0]['remote'])
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(core, 'CFG_FILE', Path(directory) / 'config.json'):
+                core.save_cfg(cfg)
+                restored = core.load_cfg()
+                self.assertTrue(restored['keyboard_shortcuts'][0]['remote'])
+                self.assertFalse(restored['profiles'][0]['keyboard_shortcuts'][0]['remote'])
+                self.assertNotIn('discard', core.CFG_FILE.read_text())
+        self.assertEqual(core.normalize_settings(dict(keyboard_shortcuts=[None,
+            dict(accelerator='Left', remote='false')]))['keyboard_shortcuts'], [])
+
     def test_appearance_is_preserved_across_profiles_and_restart(self):
         cfg = copy.deepcopy(core.DEFAULT)
         cfg.update(server='one.example', user='first', appearance='light')
@@ -87,6 +108,27 @@ class ProfileTests(unittest.TestCase):
         self.assertIn('/drive:Documentos,/tmp/Meu trabalho', command)
 
 
+class KeyboardRulesTests(unittest.TestCase):
+    def test_human_input_and_native_protocol(self):
+        from keyboard import parse_shortcut_text, native_rules
+        rules = [dict(accelerator=parse_shortcut_text('Ctrl + Alt + Esquerda', routing=True), remote=False),
+                 dict(accelerator=parse_shortcut_text('Win + Ctrl + direita', routing=True), remote=True)]
+        self.assertEqual(native_rules(rules, core.DEFAULT['fullscreen_shortcut']), '65361:12:0;65363:68:1')
+        self.assertEqual(parse_shortcut_text('Print', routing=True), 'Print')
+        with self.assertRaises(ValueError):
+            parse_shortcut_text('Ctrl + AtalhoInexistente', routing=True)
+
+    def test_duplicate_and_reserved_combinations_are_rejected(self):
+        from keyboard import validate_rules
+        with self.assertRaisesRegex(ValueError, 'Já existe'):
+            validate_rules([dict(accelerator='<Alt><Control>Left', remote=False),
+                            dict(accelerator='<Control><Alt>Left', remote=True)], '<Control><Alt>Return')
+        with self.assertRaisesRegex(ValueError, 'tela cheia'):
+            validate_rules([dict(accelerator='<Control><Alt>Return', remote=False)], '<Control><Alt>Return')
+        with self.assertRaisesRegex(ValueError, 'lista de atalhos'):
+            validate_rules([dict(accelerator='<Alt>Tab', remote=False)], '<Control><Alt>Return')
+
+
 GUI_SCRIPT = r'''
 import sys, tempfile, time, threading
 from pathlib import Path
@@ -125,6 +167,86 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.save_profile()
     second = win.cfg['active_profile']
     assert len(win.cfg['profiles']) == 2
+    win.edit_keyboard_rule()
+    rule_editor = next(w for w in Gtk.Window.get_toplevels() if w.get_title() == 'Regra de teclado')
+    rule_editor.input.set_text('Ctrl + Alt + Esquerda')
+    rule_editor.save()
+    assert len(win.cfg['keyboard_shortcuts']) == 1
+    assert not win.cfg['keyboard_shortcuts'][0]['remote']
+    win.keyboard_rules.get_first_child().set_active(True)
+    assert win.cfg['keyboard_shortcuts'][0]['remote']
+    win.edit_keyboard_rule(0)
+    rule_editor = next(w for w in Gtk.Window.get_toplevels() if w.get_title() == 'Regra de teclado')
+    rule_editor.input.set_text('Ctrl + Alt + Direita')
+    rule_editor.destination.set_selected(0)
+    rule_editor.save()
+    assert win.cfg['keyboard_shortcuts'][0]['accelerator'] == '<Control><Alt>Right'
+    win.edit_keyboard_rule()
+    rule_editor = next(w for w in Gtk.Window.get_toplevels() if w.get_title() == 'Regra de teclado')
+    rule_editor.input.set_text('Alt + Ctrl + Right')
+    rule_editor.save()
+    assert rule_editor.get_visible() and 'Já existe' in rule_editor.error.get_text()
+    assert len(win.cfg['keyboard_shortcuts']) == 1
+    rule_editor.close()
+    win.remove_keyboard_rule(0)
+    assert win.cfg['keyboard_shortcuts'] == []
+    win.edit_keyboard_rule()
+    rule_editor = next(w for w in Gtk.Window.get_toplevels() if w.get_title() == 'Regra de teclado')
+    rule_editor.save()
+    def navigation_bounds():
+        result = {}
+        for name, widget in win.ui.tab_buttons.items():
+            ok, rect = widget.compute_bounds(win)
+            assert ok
+            result[name] = tuple(round(value, 2) for value in
+                                (rect.get_x(), rect.get_y(), rect.get_width(), rect.get_height()))
+        return result
+
+    # Compare allocated positions, not only the tree: navigation must stay put
+    # when page headings/hero, scroll positions, theme or footer content change.
+    for width, height in [(1120, 820), (680, 760)]:
+        win.set_default_size(width, height)
+        win.ui.show_page('connection')
+        drain(.3)
+        expected = navigation_bounds()
+        for page in ('display', 'sharing', 'connection'):
+            win.ui.show_page(page)
+            drain(.2)
+            assert navigation_bounds() == expected, 'Navigation moved when switching to ' + page
+        win.ui.show_page('display')
+        scroll = win.ui.page_scrolls['display']
+        adjustment = scroll.get_vadjustment()
+        assert adjustment.get_upper() > adjustment.get_page_size(), 'Test page must actually scroll'
+        adjustment.set_value(adjustment.get_upper() - adjustment.get_page_size())
+        drain(.2)
+        assert navigation_bounds() == expected, 'Navigation moved while scrolling'
+        offset = adjustment.get_value()
+        win.ui.show_page('sharing')
+        drain(.2)
+        win.ui.show_page('display')
+        drain(.2)
+        assert abs(adjustment.get_value() - offset) < 1, ('Page lost its scroll position',
+            offset, adjustment.get_value(), adjustment.get_upper(), adjustment.get_page_size())
+        win.show_error('Example error that takes extra space in the fixed footer.')
+        drain(.2)
+        assert navigation_bounds() == expected, 'Footer error moved navigation'
+        win.show_error('')
+        win.controls.set_visible(True)
+        drain(.2)
+        assert navigation_bounds() == expected, 'Session controls moved navigation'
+        win.controls.set_visible(False)
+        win.ui.toggle_theme()
+        drain(.2)
+        assert navigation_bounds() == expected, 'Theme switch moved navigation'
+        win.ui.toggle_theme()
+    win.ui.show_page('connection')
+    win.password.grab_focus()
+    drain(.35)
+    ok, field_bounds = win.password.compute_bounds(win)
+    viewport_ok, viewport_bounds = win.form.compute_bounds(win)
+    assert ok and viewport_ok
+    assert field_bounds.get_y() >= viewport_bounds.get_y()
+    assert field_bounds.get_y() + field_bounds.get_height() <= viewport_bounds.get_y() + viewport_bounds.get_height()
     win.ui.search.set_text('two.example')
     drain(.25)
     assert win.ui.profile_list.get_first_child().profile_index == 1
@@ -154,12 +276,15 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     assert win.server.get_text() == 'one.example'
     assert win.keyboard_rows['remote_alt_tab'].get_active()
     assert win.cfg['fullscreen_shortcut'] == '<Control><Alt>Return'
+    assert win.cfg['keyboard_shortcuts'] == []
     win.profile.set_selected(1)
     assert win.cfg['active_profile'] == second
     assert not win.keyboard_rows['remote_alt_tab'].get_active()
+    assert len(win.cfg['keyboard_shortcuts']) == 1
     assert Gtk.accelerator_parse(win.cfg['fullscreen_shortcut']) == Gtk.accelerator_parse('<Control><Shift>F12')
     win.keyboard_mode.set_selected(2)
     assert not win.keyboard_rows['remote_alt_tab'].get_sensitive()
+    assert not win.add_keyboard_rule.get_sensitive()
     win.persist()
     assert win.cfg['capture_keyboard'] is False
 
@@ -234,6 +359,9 @@ print('PASS GTK: responsive navigation/search/themes, profiles, stale credential
 
 class GtkPreferencesTests(unittest.TestCase):
     def test_preferences_on_private_display(self):
+        self.run_gui_script(GUI_SCRIPT)
+
+    def run_gui_script(self, script, timeout=20):
         sdk = BASE / 'tests/tools/sdk'
         xvfb = shutil.which('Xvfb') or sdk / 'usr/bin/Xvfb'
         if not Path(xvfb).exists():
@@ -253,8 +381,8 @@ class GtkPreferencesTests(unittest.TestCase):
                 env.update(HOME=directory, XDG_CONFIG_HOME=directory + '/.config',
                            XDG_DATA_HOME=directory + '/.local/share', XDG_CACHE_HOME=directory + '/.cache')
                 try:
-                    result = subprocess.run([sys.executable, '-c', GUI_SCRIPT, str(BASE)],
-                        env=env, capture_output=True, text=True, timeout=20)
+                    result = subprocess.run([sys.executable, '-c', script, str(BASE)],
+                        env=env, capture_output=True, text=True, timeout=timeout)
                 except subprocess.TimeoutExpired as exc:
                     self.fail('Timeout nos fluxos GTK: ' + str(exc.stdout) + str(exc.stderr))
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

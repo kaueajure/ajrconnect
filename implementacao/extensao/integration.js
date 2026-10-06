@@ -8,6 +8,15 @@ import * as AltTab from 'resource:///org/gnome/shell/ui/altTab.js';
 const KEYBOARD_INTERFACE = `<node>
 <interface name="com.ajure.AJRConnect.Keyboard">
   <method name="Ping"><arg type="b" direction="out" name="ready"/></method>
+  <method name="GetKeyboardVersion"><arg type="u" direction="out" name="version"/></method>
+  <method name="LocalAccelerator">
+    <arg type="u" direction="in" name="pid"/>
+    <arg type="s" direction="in" name="token"/>
+    <arg type="u" direction="in" name="keyval"/>
+    <arg type="u" direction="in" name="modifiers"/>
+    <arg type="u" direction="in" name="keycode"/>
+    <arg type="b" direction="out" name="accepted"/>
+  </method>
   <method name="LocalShortcut">
     <arg type="u" direction="in" name="pid"/>
     <arg type="s" direction="in" name="token"/>
@@ -63,6 +72,40 @@ export default class AJRConnectIntegration {
 
     Ping() {
         return !Main.sessionMode.isLocked;
+    }
+
+    GetKeyboardVersion() {
+        return 2;
+    }
+
+    LocalAccelerator(pid, token, keyval, modifiers, keycode) {
+        const win = global.display.focus_window;
+        const record = win ? this._record(win) : null;
+        if (Main.sessionMode.isLocked || !record || record.pid !== pid || record.token !== token ||
+            !keyval || keycode < 8 || keycode > 255 || modifiers & ~77)
+            return false;
+        // Use the desktop's existing bindings, including user-created ones.
+        // Reject unbound shortcuts before generating any input.
+        if (!global.display.get_keybinding_action(keycode, modifiers))
+            return false;
+        this._virtualKeyboard ??= Clutter.get_default_backend().get_default_seat()
+            .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
+        const keys = [[4, Clutter.KEY_Control_L], [8, Clutter.KEY_Alt_L],
+            [1, Clutter.KEY_Shift_L], [64, Clutter.KEY_Super_L]]
+            .filter(([mask]) => modifiers & mask).map(([, key]) => key);
+        keys.push(keyval);
+        const time = GLib.get_monotonic_time();
+        const pressed = [];
+        try {
+            for (const key of keys) {
+                this._virtualKeyboard.notify_keyval(time, key, Clutter.KeyState.PRESSED);
+                pressed.push(key);
+            }
+        } finally {
+            for (const key of pressed.reverse())
+                this._virtualKeyboard.notify_keyval(time, key, Clutter.KeyState.RELEASED);
+        }
+        return true;
     }
 
     LocalShortcut(pid, token, action, reverse) {
@@ -250,6 +293,7 @@ export default class AJRConnectIntegration {
         this._keyboardDBus = null;
         this._switcher?.destroy();
         this._switcher = null;
+        this._virtualKeyboard = null;
         for (const id of this._sources ?? []) GLib.source_remove(id);
         this._sources?.clear();
         for (const {object, id} of this._signals ?? []) object.disconnect(id);

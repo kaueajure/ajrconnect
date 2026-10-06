@@ -54,7 +54,7 @@ void xf_ajr_update_keyboard(xfContext* xfc)
 {
     if (!xfc->window) return;
     BOOL capture = xfc->grab_keyboard && xfc->focused &&
-                   !xfc->ajr_pending && !xfc->ajr_local_pending &&
+                   !xfc->ajr_pending && (!xfc->ajr_local_pending || xfc->ajr_wait_keys) &&
                    (xfc->ajr_capture_window || actual_fullscreen(xfc));
     if (capture)
     {
@@ -123,6 +123,26 @@ void xf_ajr_init(xfContext* xfc)
     xfc->ajr_fullscreen_key = key ? strtoul(key, NULL, 10) : XK_Return;
     xfc->ajr_fullscreen_mods = mods ? strtoul(mods, NULL, 10) : ControlMask | Mod1Mask;
     xfc->ajr_remote_keys = remote ? strtoul(remote, NULL, 10) : 7;
+    xfc->ajr_rule_count = 0;
+    const char* rules = getenv("AJR_KEYBOARD_RULES");
+    while (rules && *rules && xfc->ajr_rule_count < 128)
+    {
+        unsigned long key; unsigned int modifiers, target; int length = 0;
+        if (sscanf(rules, "%lu:%u:%u%n", &key, &modifiers, &target, &length) != 3 ||
+            !length || !key || key > 0xffffffffUL || target > 1 ||
+            modifiers & ~(ShiftMask | ControlMask | Mod1Mask | Mod4Mask) ||
+            (rules[length] && rules[length] != ';'))
+        {
+            fprintf(stderr, "AJR invalid keyboard rules\n");
+            break;
+        }
+        unsigned int index = xfc->ajr_rule_count++;
+        xfc->ajr_rules[index].key = key;
+        xfc->ajr_rules[index].mods = modifiers;
+        xfc->ajr_rules[index].remote = target;
+        rules += length;
+        if (*rules == ';') rules++;
+    }
     xfc->savedWidth = xfc->window->width;
     xfc->savedHeight = xfc->window->height;
     xfc->savedPosX = xfc->context.settings->DesktopPosX;
@@ -138,6 +158,7 @@ void xf_ajr_init(xfContext* xfc)
 static void local_shortcut(xfContext* xfc, unsigned long action, BOOL reverse)
 {
     unsigned long request[] = { action, reverse };
+    xfc->ajr_local_accelerator[0] = 0;
     /* Suppress recapture until the GUI has handed the action to GNOME Shell.
      * A bounded timeout recovers if the GUI/integration has disappeared. */
     xfc->ajr_local_pending = TRUE;
@@ -150,10 +171,32 @@ static void local_shortcut(xfContext* xfc, unsigned long action, BOOL reverse)
     XFlush(xfc->display);
 }
 
+static void publish_local_accelerator(xfContext* xfc)
+{
+    xfc->ajr_wait_keys = FALSE;
+    xfc->ajr_local_deadline = GetTickCount64() + 2000;
+    xf_ajr_release_keyboard(xfc);
+    XChangeProperty(xfc->display, xfc->window->handle,
+        XInternAtom(xfc->display, "_AJR_LOCAL_ACCELERATORS_V2", False), XA_CARDINAL, 32,
+        PropModeAppend, (unsigned char*)xfc->ajr_local_accelerator, 3);
+    XFlush(xfc->display);
+}
+
 BOOL xf_ajr_key(xfContext* xfc, const XKeyEvent* event, KeySym keysym, BOOL down)
 {
     if (xfc->remote_app || event->keycode >= 256) return FALSE;
     BYTE code = event->keycode;
+    /* Consume compositor replay while the local action is pending. Never let
+     * a shortcut without a desktop binding fall through to the RDP server. */
+    if (xfc->ajr_local_pending && xfc->ajr_local_accelerator[0] && !xfc->ajr_wait_keys) return TRUE;
+    xfc->ajr_pressed[code] = down;
+    if (xfc->ajr_wait_keys)
+    {
+        BOOL held = FALSE;
+        for (unsigned int i = 0; i < 256; i++) held |= xfc->ajr_pressed[i];
+        if (!held) publish_local_accelerator(xfc);
+        return TRUE;
+    }
     if (!down)
     {
         if (code == xfc->ajr_shortcut_down)
@@ -188,6 +231,31 @@ BOOL xf_ajr_key(xfContext* xfc, const XKeyEvent* event, KeySym keysym, BOOL down
         return TRUE;
     }
     if (!xfc->ajr_grabbed) return FALSE;
+    for (unsigned int i = 0; i < xfc->ajr_rule_count; i++)
+    {
+        if (lower != xfc->ajr_rules[i].key || modifiers != xfc->ajr_rules[i].mods) continue;
+        if (!xfc->ajr_rules[i].remote)
+        {
+            /* Wait for physical keys to be released while retaining the grab.
+             * Replay then starts with a clean modifier state in GNOME Shell. */
+            xf_keyboard_release_all_keypress(xfc);
+            xfc->ajr_super_key = 0;
+            xfc->ajr_wait_keys = xfc->ajr_local_pending = TRUE;
+            xfc->ajr_local_deadline = GetTickCount64() + 30000;
+            xfc->ajr_local_accelerator[0] = lower;
+            xfc->ajr_local_accelerator[1] = modifiers;
+            xfc->ajr_local_accelerator[2] = code;
+            return TRUE;
+        }
+        /* Explicit Windows rules override a broader built-in local rule. */
+        if (xfc->ajr_super_key)
+        {
+            BYTE super = xfc->ajr_super_key;
+            xfc->ajr_super_key = 0;
+            xf_keyboard_key_press(xfc, super, XkbKeycodeToKeysym(xfc->display, super, 0, 0));
+        }
+        return FALSE;
+    }
     if (!(xfc->ajr_remote_keys & 2) && (keysym == XK_Super_L || keysym == XK_Super_R))
     {
         xfc->ajr_super_key = code;
@@ -279,7 +347,12 @@ void xf_ajr_sync(xfContext* xfc)
 {
     if (!xfc->window) return;
     if (xfc->ajr_local_pending && GetTickCount64() >= xfc->ajr_local_deadline)
+    {
         xfc->ajr_local_pending = FALSE;
+        xfc->ajr_wait_keys = FALSE;
+        memset(xfc->ajr_pressed, 0, sizeof(xfc->ajr_pressed));
+        xfc->ajr_local_accelerator[0] = 0;
+    }
     BOOL actual = actual_fullscreen(xfc);
     if (xfc->ajr_pending)
     {

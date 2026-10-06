@@ -115,7 +115,10 @@ int main(void)
     freerdp_keyboard_init(0);
     xfc.grab_keyboard = xfc.focused = TRUE;
     setenv("AJR_CONTROL_TOKEN", "1234abcd", 1);
+    setenv("AJR_KEYBOARD_RULES", "65361:12:0;65363:12:1;65289:9:1;100:64:0", 1);
     xf_ajr_init(&xfc);
+    assert(xfc.ajr_rule_count == 4);
+    xfc.ajr_rule_count = 0; /* Preserve the original built-in routing tests. */
     fullscreen_property(&xfc, FALSE);
     assert(!xfc.ajr_grabbed);
     probe(&xfc, other, FALSE);
@@ -214,6 +217,92 @@ int main(void)
     assert(!xfc.ajr_local_pending && xfc.ajr_grabbed);
 
     /* Custom shortcut: exact modifiers, no auto-repeat, no remote key leakage. */
+    /* An arbitrary local combination waits for all physical keys to be up. */
+    xfc.ajr_rule_count = 4;
+    event(&xfc, KeyPress, XK_Control_L);
+    event(&xfc, KeyPress, XK_Alt_L);
+    before = sent;
+    event_state(&xfc, KeyPress, XK_Left, ControlMask | Mod1Mask | LockMask | Mod2Mask);
+    assert(xfc.ajr_wait_keys && xfc.ajr_local_pending && xfc.ajr_grabbed);
+    assert(sent == before + 2); /* Only release the remote modifiers. */
+    before = sent;
+    xf_ajr_sync(&xfc);
+    assert(xfc.ajr_grabbed);
+    event_state(&xfc, KeyPress, XK_Left, ControlMask | Mod1Mask);
+    event_state(&xfc, KeyRelease, XK_Left, ControlMask | Mod1Mask);
+    event(&xfc, KeyRelease, XK_Alt_L);
+    assert(xfc.ajr_wait_keys && xfc.ajr_grabbed);
+    event(&xfc, KeyRelease, XK_Control_L);
+    assert(!xfc.ajr_wait_keys && !xfc.ajr_grabbed && xfc.ajr_local_pending);
+    Atom type; int format; unsigned long count, remaining; unsigned char* bytes = NULL;
+    assert(XGetWindowProperty(xfc.display, window.handle,
+        XInternAtom(xfc.display, "_AJR_LOCAL_ACCELERATORS_V2", False), 0, 10,
+        True, XA_CARDINAL, &type, &format, &count, &remaining, &bytes) == Success);
+    assert(bytes && format == 32 && count == 3);
+    assert(((unsigned long*)bytes)[0] == XK_Left);
+    assert(((unsigned long*)bytes)[1] == (ControlMask | Mod1Mask));
+    assert(((unsigned long*)bytes)[2] == XKeysymToKeycode(xfc.display, XK_Left));
+    XFree(bytes);
+    /* Compositor replay and repeats never leak into the remote session. */
+    event(&xfc, KeyPress, XK_Control_L);
+    event_state(&xfc, KeyPress, XK_Left, ControlMask | Mod1Mask);
+    event_state(&xfc, KeyRelease, XK_Left, ControlMask | Mod1Mask);
+    event(&xfc, KeyRelease, XK_Control_L);
+    assert(sent == before);
+    resume(&xfc);
+    before = sent;
+    event(&xfc, KeyPress, XK_Control_L);
+    event(&xfc, KeyPress, XK_Alt_L);
+    event_state(&xfc, KeyPress, XK_Right, ControlMask | Mod1Mask);
+    event_state(&xfc, KeyRelease, XK_Right, ControlMask | Mod1Mask);
+    event(&xfc, KeyRelease, XK_Alt_L);
+    event(&xfc, KeyRelease, XK_Control_L);
+    assert(sent == before + 6 && !xfc.ajr_local_pending);
+    /* Shift+Alt+Tab overrides the broader built-in local Alt+Tab rule. */
+    before = sent;
+    event(&xfc, KeyPress, XK_Alt_L);
+    event_state(&xfc, KeyPress, XK_Tab, Mod1Mask | ShiftMask);
+    event_state(&xfc, KeyRelease, XK_Tab, Mod1Mask | ShiftMask);
+    event(&xfc, KeyRelease, XK_Alt_L);
+    assert(sent == before + 4 && !xfc.ajr_local_pending);
+    /* Extra modifiers do not accidentally match a local rule. */
+    before = sent;
+    event_state(&xfc, KeyPress, XK_Left, ControlMask | Mod1Mask | ShiftMask);
+    event_state(&xfc, KeyRelease, XK_Left, ControlMask | Mod1Mask | ShiftMask);
+    assert(sent == before + 2 && !xfc.ajr_local_pending);
+
+    /* A custom Super combination takes precedence over Super alone. */
+    before = sent;
+    event(&xfc, KeyPress, XK_Super_L);
+    event_state(&xfc, KeyPress, XK_d, Mod4Mask);
+    assert(xfc.ajr_wait_keys && sent == before);
+    event_state(&xfc, KeyRelease, XK_d, Mod4Mask);
+    event(&xfc, KeyRelease, XK_Super_L);
+    assert(!xfc.ajr_wait_keys && xfc.ajr_local_pending && sent == before);
+    bytes = NULL;
+    assert(XGetWindowProperty(xfc.display, window.handle,
+        XInternAtom(xfc.display, "_AJR_LOCAL_ACCELERATORS_V2", False), 0, 10,
+        True, XA_CARDINAL, &type, &format, &count, &remaining, &bytes) == Success);
+    assert(bytes && count == 3 && ((unsigned long*)bytes)[0] == XK_d &&
+           ((unsigned long*)bytes)[1] == Mod4Mask);
+    XFree(bytes);
+    resume(&xfc);
+
+    /* Losing focus cancels an unfinished chord instead of leaving a grab. */
+    event(&xfc, KeyPress, XK_Control_L);
+    event(&xfc, KeyPress, XK_Alt_L);
+    event_state(&xfc, KeyPress, XK_Left, ControlMask | Mod1Mask);
+    assert(xfc.ajr_wait_keys);
+    XEvent focus = {0};
+    focus.xfocus.window = window.handle;
+    focus.xfocus.mode = NotifyNormal;
+    focus.xfocus.type = FocusOut;
+    assert(xf_event_process(&instance, &focus));
+    assert(!xfc.ajr_wait_keys && !xfc.ajr_local_pending && !xfc.ajr_grabbed);
+    focus.xfocus.type = FocusIn;
+    assert(xf_event_process(&instance, &focus));
+    assert(xfc.ajr_grabbed);
+
     xfc.fullscreen_toggle = TRUE;
     xfc.ajr_fullscreen_key = XK_F12;
     xfc.ajr_fullscreen_mods = ControlMask | ShiftMask;
@@ -257,6 +346,6 @@ int main(void)
     freerdp_settings_free(xfc.context.settings);
     XCloseDisplay(other);
     XCloseDisplay(xfc.display);
-    puts("PASS native grab lifecycle, local Alt+Tab/Super/Alt+F4 routing, remote Super+R, custom shortcut/repeat, window capture and timeout recovery");
+    puts("PASS native keyboard: built-in/custom local and remote rules, modifier/replay isolation, focus/timeout recovery and fullscreen shortcut");
     return 0;
 }

@@ -8,6 +8,9 @@ seleção de pastas, atalhos personalizáveis e atualização da AJR Bar na sess
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
+Em desenvolvimento: **6.0.0-beta.7**, com atualização pelo aplicativo e
+reconexão automática. Esses recursos ainda não estão no download publicado.
+
 ## Nova interface
 
 A interface tem
@@ -88,7 +91,17 @@ campos vazios; configurações existentes são preservadas.
 - Ative ou desative individualmente **Alt+Tab**, **Windows/Super** (sozinha) e
   **Alt+F4**. Ativado executa no Windows; desativado executa no Linux.
   Essa combinação de prioridades exige a **AJR Bar atualizada e ativa no GNOME 46**.
-  Super+R e outras combinações com Super seguem a captura geral do teclado.
+- Em **Tela e teclado → Outras combinações → Adicionar atalho**, escolha uma
+  sugestão ou informe qualquer combinação, por exemplo **Ctrl + Alt + Esquerda**,
+  **Super + Ctrl + Direita** ou **Super + D**. Escolha **Este computador** ou
+  **Windows**. Depois, use os botões da regra para editar ou remover o atalho.
+  Nas regras, ativado executa no Windows; desativado executa neste computador.
+  As regras são salvas por conexão; combinações sem regra seguem a captura geral.
+- Para executar um atalho local, ele precisa estar configurado nas opções de
+  teclado do Linux. O aplicativo usa a ação existente, inclusive atalhos
+  personalizados do sistema. É possível digitar a combinação quando o desktop
+  a intercepta durante a gravação. Regras duplicadas ou que usem o atalho de
+  tela cheia são rejeitadas.
 - No GNOME 46, a AJR Bar no topo central permite minimizar, sair de fullscreen e desconectar.
 - Os mesmos controles estão disponíveis na janela do aplicativo.
 
@@ -115,6 +128,33 @@ depender do portal de arquivos. Pastas de rede precisam estar montadas e
 disponíveis como diretórios locais antes de serem compartilhadas.
 
 ## Atualizações sem sair da sessão
+
+No aplicativo, clique no ícone **Atualizações** do cabeçalho. A janela mostra a
+versão atual, procura versões publicadas e oferece **Baixar e atualizar**.
+O download tem progresso e pode ser cancelado. O pacote é conferido por SHA256
+antes de instalar, e uma falha de instalação tenta restaurar o backup anterior.
+Depois, clique em **Reiniciar aplicativo**. As configurações e senhas do chaveiro
+são preservadas. Desconecte do Windows antes de atualizar.
+
+Você pode ativar **Verificar ao abrir o aplicativo** e escolher se deseja
+incluir versões de teste. O aplicativo avisa quando há uma versão nova.
+Ao executar os fontes localmente, a consulta funciona, mas a atualização é
+feita pelo aplicativo instalado para preservar o diretório de desenvolvimento.
+
+### Reconexão automática
+
+Em **Conexão**, ative **Reconectar automaticamente**. A opção é salva por
+conexão e começa ativada. Depois de uma sessão estabelecida, uma queda de rede
+inicia até cinco tentativas, com esperas de 2, 4, 8, 16 e 30 segundos.
+O rodapé mostra a próxima tentativa e oferece **Cancelar reconexão**.
+
+A recuperação reutiliza os dados da sessão e o modo de tela. A senha permanece
+apenas em memória durante a conexão e suas tentativas; não vai para JSON ou
+registros. Erros de autenticação, logoff e encerramentos voluntários não
+provocam reconexão. Se todas as tentativas falharem, os campos são liberados
+para corrigir a configuração e conectar manualmente.
+
+### Atualizar pelo terminal
 
 Execute novamente o mesmo comando de instalação para baixar a versão nova.
 Ele preserva as configurações,
@@ -165,7 +205,7 @@ Para gerar os pacotes localmente, execute `python3 package.py` a partir de
 
 Subir o código não publica os pacotes instaláveis. Para cada versão:
 
-1. Atualize `TAG` em `implementacao/prepare_release.py` e as versões nos READMEs.
+1. Atualize `APP_VERSION` em `implementacao/version.py` e as versões nos READMEs. As notas de publicação usam essa mesma versão.
 2. Gere os pacotes com `python3 implementacao/package.py` e execute os testes.
 3. Gere as notas com `python3 implementacao/prepare_release.py --repo kaueajure/ajrconnect --output /tmp/ajr-publicacao-nova`. Use um diretório de saída que ainda não exista. Faça commit dos fontes correspondentes e envie para `main` antes de criar a Release.
 4. No GitHub, abra **Releases → Draft a new release**, escolha uma tag nova e a branch `main`, cole as notas geradas e anexe os três arquivos de `dist/`: o pacote Linux, os fontes e `SHA256SUMS`. Para versões beta, marque **Pre-release** e publique.

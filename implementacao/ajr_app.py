@@ -14,12 +14,17 @@ import socket
 import subprocess
 import threading
 import time
+import sys
 from core import (DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
                   DEFAULT, PROFILE_KEYS, detect_monitors, host_port, load_cfg,
                   resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
 from integration import installed_revision
 from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
+from keyboard import native_rules, validate_rules, x11_modifiers
+from reconnect import RetryPlan
+import updates
+from update_dialog import UpdateWindow
 from ui import DesktopView
 
 APP_ID = 'com.ajure.AJRConnect'
@@ -48,10 +53,18 @@ class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title='AJR Connect')
         self.cfg = load_cfg()
-        try:
-            shortcut_parts(self.cfg['fullscreen_shortcut'])
-        except ValueError:
-            self.cfg['fullscreen_shortcut'] = DEFAULT['fullscreen_shortcut']
+        for settings in [self.cfg, *self.cfg['profiles']]:
+            try:
+                shortcut_parts(settings['fullscreen_shortcut'])
+            except ValueError:
+                settings['fullscreen_shortcut'] = DEFAULT['fullscreen_shortcut']
+            valid_rules = []
+            for rule in settings['keyboard_shortcuts']:
+                try:
+                    valid_rules = validate_rules([*valid_rules, rule], settings['fullscreen_shortcut'])
+                except ValueError:
+                    pass
+            settings['keyboard_shortcuts'] = valid_rules
         self._profiles_updating = False
         self._password_generation = 0
         self._integration_ready = False
@@ -60,12 +73,20 @@ class MainWindow(Adw.ApplicationWindow):
         self._status_source = 0
         self._closing = False
         self._started = False
+        self._launching = self._reconnecting = self._manual_disconnect = False
+        self._connection_request, self._retry_plan = None, None
+        self._connection_generation = 0
+        self._connection_cancel = threading.Event()
+        self._retry_source, self._retry_due = 0, 0
+        self._updating = self._update_ready = False
+        self._available_release, self._update_window = None, None
         self.set_default_size(1120, 820)
         self.set_size_request(620, 480)
         self.connect('close-request', self.close_requested)
         self.ui = DesktopView(self)
         self.refresh_monitors()
         self.render_shares()
+        self.render_keyboard_rules()
         self.refresh_profiles()
         self.profile.connect('notify::selected', self.profile_changed)
         self.set_shortcut(self.cfg['fullscreen_shortcut'], persist=False)
@@ -103,6 +124,8 @@ class MainWindow(Adw.ApplicationWindow):
                 self.update_keyboard_options()
             GLib.idle_add(done)
         threading.Thread(target=integration_status, daemon=True).start()
+        if self.cfg['check_updates'] and updates.installed_application():
+            GLib.timeout_add(1500, self.check_updates_on_startup)
 
     def refresh_monitors(self):
         try:
@@ -124,7 +147,7 @@ class MainWindow(Adw.ApplicationWindow):
             quality=int(self.quality.get_selected()), fullscreen=self.fullscreen.get_active(),
             keyboard_mode=('fullscreen', 'always', 'local')[self.keyboard_mode.get_selected()],
             capture_keyboard=self.keyboard_mode.get_selected() != 2, clipboard=self.clipboard.get_active(),
-            remember=self.remember.get_active())
+            remember=self.remember.get_active(), auto_reconnect=self.auto_reconnect.get_active())
         self.cfg.update({key: row.get_active() for key, row in self.keyboard_rows.items()})
         i = int(self.monitor.get_selected())
         if 0 <= i < len(self.monitors):
@@ -173,6 +196,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.fullscreen.set_active(self.cfg['fullscreen'])
         self.clipboard.set_active(self.cfg['clipboard'])
         self.remember.set_active(self.cfg['remember'])
+        self.auto_reconnect.set_active(self.cfg['auto_reconnect'])
         self.quality.set_selected(self.cfg['quality'])
         self.keyboard_mode.set_selected(('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
         for key, row in self.keyboard_rows.items():
@@ -183,6 +207,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.set_shortcut(DEFAULT['fullscreen_shortcut'], persist=False)
         self.refresh_monitors()
         self.render_shares()
+        self.render_keyboard_rules()
         if refresh_profiles:
             self.refresh_profiles()
         else:
@@ -272,6 +297,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def set_shortcut(self, value, persist=True):
         key, modifiers = shortcut_parts(value)
+        validate_rules(self.cfg['keyboard_shortcuts'], value)
         self.cfg['fullscreen_shortcut'] = Gtk.accelerator_name(key, modifiers)
         self.shortcut.set_subtitle(Gtk.accelerator_get_label(key, modifiers))
         if persist:
@@ -281,10 +307,57 @@ class MainWindow(Adw.ApplicationWindow):
         active = self.keyboard_mode.get_selected() != 2
         for row in self.keyboard_rows.values():
             row.set_sensitive(active)
+        self.keyboard_rules.set_sensitive(active)
+        self.add_keyboard_rule.set_sensitive(active)
         self.keyboard_note.set_subtitle(
-            'Prioridade individual disponível com a AJR Bar atualizada e ativa. As demais combinações seguem a captura do teclado.'
+            'Atalhos locais usam as configurações de teclado deste computador. Reconecte após alterar as regras.'
             if self._integration_ready else
             'Para misturar atalhos locais e remotos, ative a AJR Bar atualizada no GNOME. Sem ela, escolha todos no Windows ou todos locais.')
+
+    def render_keyboard_rules(self):
+        from keyboard import shortcut_parts
+        while (child := self.keyboard_rules.get_first_child()) is not None:
+            self.keyboard_rules.remove(child)
+        for index, rule in enumerate(self.cfg['keyboard_shortcuts']):
+            row = Adw.SwitchRow(title=Gtk.accelerator_get_label(
+                *shortcut_parts(rule['accelerator'], routing=True)), active=rule['remote'])
+            row.update_property([Gtk.AccessibleProperty.LABEL], [row.get_title() + ': executar no Windows'])
+            row.connect('notify::active', lambda widget, _prop, i=index: self.set_keyboard_target(i, widget.get_active()))
+            for icon, tooltip, callback in [
+                    ('document-edit-symbolic', 'Editar atalho', lambda _b, i=index: self.edit_keyboard_rule(i)),
+                    ('user-trash-symbolic', 'Remover atalho', lambda _b, i=index: self.remove_keyboard_rule(i))]:
+                control = Gtk.Button(icon_name=icon, tooltip_text=tooltip, valign=Gtk.Align.CENTER)
+                control.add_css_class('flat')
+                control.connect('clicked', callback)
+                row.add_suffix(control)
+            self.keyboard_rules.append(row)
+        self.keyboard_rules.set_visible(bool(self.cfg['keyboard_shortcuts']))
+        self.update_keyboard_options()
+
+    def set_keyboard_target(self, index, remote):
+        self.cfg['keyboard_shortcuts'][index]['remote'] = remote
+        self.persist()
+
+    def edit_keyboard_rule(self, index=None):
+        current = self.cfg['keyboard_shortcuts'][index] if index is not None else \
+                  dict(accelerator='<Control><Alt>Left', remote=False)
+        def save(rule):
+            rules = copy.deepcopy(self.cfg['keyboard_shortcuts'])
+            if index is None:
+                rules.append(rule)
+            else:
+                rules[index] = rule
+            self.cfg['keyboard_shortcuts'] = validate_rules(rules, self.cfg['fullscreen_shortcut'])
+            self.persist()
+            self.render_keyboard_rules()
+        editor = ShortcutEditor(self, current['accelerator'], save, routing=True)
+        editor.destination.set_selected(int(current['remote']))
+        editor.present()
+
+    def remove_keyboard_rule(self, index):
+        del self.cfg['keyboard_shortcuts'][index]
+        self.persist()
+        self.render_keyboard_rules()
 
     def render_shares(self):
         while (child := self.share_list.get_first_child()) is not None:
@@ -329,6 +402,49 @@ class MainWindow(Adw.ApplicationWindow):
         if text:
             self.error.grab_focus()
 
+    def connection_busy(self):
+        return bool(self.proc or self._launching or self._retry_source)
+
+    def open_updates(self):
+        if self._update_window:
+            self._update_window.present()
+            return
+        self._update_window = UpdateWindow(self)
+        self._update_window.present()
+
+    def check_updates_on_startup(self):
+        if self._closing or not self.cfg['check_updates']:
+            return GLib.SOURCE_REMOVE
+        include = self.cfg['update_prereleases']
+        def worker():
+            try:
+                release = updates.check_updates(include_prereleases=include)
+            except Exception:
+                return  # Manual verification displays network errors and retry.
+            def done():
+                if self._closing or not self.cfg['check_updates'] or \
+                        self.cfg['update_prereleases'] != include or not release:
+                    return
+                self._available_release = release
+                self.ui.update_available(True)
+                toast = Adw.Toast(title='Nova versão disponível: ' + release.tag.removeprefix('v'),
+                                  button_label='Atualizar')
+                toast.connect('button-clicked', lambda *_: self.open_updates())
+                self.toast.add_toast(toast)
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
+        return GLib.SOURCE_REMOVE
+
+    def restart_application(self):
+        if self.connection_busy() or self._updating or not self._update_ready:
+            return
+        self.persist()
+        subprocess.Popen([sys.executable, str(DATA_DIR / 'app/updates.py'), '--restart', str(os.getpid())],
+                         stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                         start_new_session=True)
+        self._closing = True
+        self.get_application().quit()
+
     def set_status(self, title, subtitle, icon='network-server-symbolic'):
         self.status.set_title(title)
         self.status.set_subtitle(subtitle)
@@ -345,10 +461,10 @@ class MainWindow(Adw.ApplicationWindow):
         if hasattr(self, 'ui'):
             self.ui.update_summary()
         if not server:
-            if not self.proc:
+            if not self.connection_busy() and not self._updating:
                 self.set_status('Configure sua conexão', 'Informe o servidor para começar.')
             return
-        if not self.proc:
+        if not self.connection_busy() and not self._updating:
             self.set_status('Verificando servidor', server)
         def check():
             try:
@@ -358,7 +474,8 @@ class MainWindow(Adw.ApplicationWindow):
             except (OSError, ValueError):
                 online = False
             def done():
-                if not self._closing and generation == self._status_generation and not self.proc:
+                if not self._closing and generation == self._status_generation and not self.connection_busy() \
+                        and not self._updating and not self._update_ready:
                     self.set_status('Servidor disponível' if online else 'Servidor indisponível',
                         server if online else 'Confira o endereço e se o Windows está ligado.',
                         'network-transmit-receive-symbolic' if online else 'network-offline-symbolic')
@@ -371,8 +488,10 @@ class MainWindow(Adw.ApplicationWindow):
         self._status_source = GLib.timeout_add(250, start_check)
 
     def do_connect(self):
-        if self.proc:
-            self.control('disconnect')
+        if self._updating or self._update_ready:
+            return
+        if self.connection_busy():
+            self.cancel_connection()
             return
         if not self.connect_btn.get_sensitive():
             return
@@ -394,12 +513,18 @@ class MainWindow(Adw.ApplicationWindow):
                     raise ValueError(f"A pasta {share['name']} não existe: {share['path']}")
             command = build_command(self.cfg, monitor)
             shortcut_key, shortcut_mods = shortcut_parts(self.cfg['fullscreen_shortcut'])
-            if self.cfg['keyboard_mode'] != 'local' and not all(
-                    self.cfg[key] for key in self.keyboard_rows):
+            rule_protocol = native_rules(self.cfg['keyboard_shortcuts'], self.cfg['fullscreen_shortcut'])
+            custom_local = any(not rule['remote'] for rule in self.cfg['keyboard_shortcuts'])
+            if self.cfg['keyboard_mode'] != 'local' and (custom_local or not all(
+                    self.cfg[key] for key in self.keyboard_rows)):
                 try:
                     ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
                         LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'Ping', None,
                         GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0]
+                    if ready and custom_local:
+                        ready = Gio.bus_get_sync(Gio.BusType.SESSION, None).call_sync(
+                            LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'GetKeyboardVersion', None,
+                            GLib.VariantType.new('(u)'), Gio.DBusCallFlags.NONE, 1000, None).unpack()[0] >= 2
                 except GLib.Error:
                     ready = False
                 if not ready:
@@ -407,29 +532,56 @@ class MainWindow(Adw.ApplicationWindow):
         except (ValueError, OSError, subprocess.TimeoutExpired, GLib.Error) as exc:
             self.show_error(str(exc))
             return
-        password = self.password.get_text()
-        self.connect_btn.set_sensitive(False)
+        self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor,
+            command=command, password=self.password.get_text(), key=shortcut_key,
+            mods=x11_modifiers(shortcut_mods), rules=rule_protocol)
+        self._retry_plan = RetryPlan(enabled=self.cfg['auto_reconnect'])
+        self._manual_disconnect = self._reconnecting = False
+        self.start_connection()
+
+    def start_connection(self):
+        request = self._connection_request
+        self._launching = True
+        self._connection_generation += 1
+        generation = self._connection_generation
+        cancel = self._connection_cancel = threading.Event()
+        self._status_generation += 1
+        self.connect_btn.set_sensitive(True)
         self.form.set_sensitive(False)
-        self.connect_btn.set_label('Conectando…')
-        self.set_status('Conectando ao Windows', self.cfg['server'])
+        self.connect_btn.set_label('Cancelar reconexão' if self._reconnecting else 'Cancelar conexão')
+        self.set_status('Reconectando ao Windows' if self._reconnecting else 'Conectando ao Windows',
+            f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}.'
+            if self._reconnecting else request['cfg']['server'])
         # Run network/keyring work off the GTK thread.
-        cfg = dict(self.cfg)
+        cfg, password = request['cfg'], request['password']
+        reconnecting = self._reconnecting
         def launch():
             try:
+                monitor, command = request['monitor'], request['command']
+                if reconnecting:
+                    monitor = resolve_monitor(cfg, detect_monitors())
+                    if monitor is None:
+                        raise ValueError('O monitor da conexão foi desconectado. Selecione outra tela.')
+                    for share in cfg['shares']:
+                        if not Path(share['path']).expanduser().is_dir():
+                            raise ValueError('A pasta compartilhada não está mais disponível: ' + share['name'])
+                    command = build_command(cfg, monitor)
                 with socket.create_connection(host_port(cfg['server']), timeout=3):
                     pass
-                if cfg['remember']:
+                updates.check_cancel(cancel)
+                if cfg['remember'] and not reconnecting:
                     if not secret(cfg['server'], cfg['user'], 'store', password):
                         GLib.idle_add(lambda: self.toast.add_toast(Adw.Toast(title='Não foi possível salvar a senha no chaveiro.')))
-                else:
+                elif not reconnecting:
                     secret(cfg['server'], cfg['user'], 'clear')
+                updates.check_cancel(cancel)
                 token = secrets.token_hex(4)
                 env = dict(os.environ, AJR_CONTROL_TOKEN=token,
                            AJR_MONITOR_CONNECTOR=monitor['connector'],
                            AJR_KEYBOARD_MODE=cfg['keyboard_mode'],
-                           AJR_FULLSCREEN_KEY=str(shortcut_key),
-                           AJR_FULLSCREEN_MODS=str(int(shortcut_mods) & 13 |
-                               (64 if shortcut_mods & Gdk.ModifierType.SUPER_MASK else 0)),
+                           AJR_FULLSCREEN_KEY=str(request['key']),
+                           AJR_FULLSCREEN_MODS=str(request['mods']),
+                           AJR_KEYBOARD_RULES=request['rules'],
                            AJR_REMOTE_KEYS=str(sum(bit for key, bit in
                                [('remote_alt_tab', 1), ('remote_super', 2), ('remote_alt_f4', 4)] if cfg[key])))
                 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -446,16 +598,28 @@ class MainWindow(Adw.ApplicationWindow):
                 atomic_json(RUNTIME_DIR / f'session-{proc.pid}.json', session)
                 proc.stdin.write(password + '\n')
                 proc.stdin.close()
-                GLib.idle_add(self.launched, proc, session)
+                updates.check_cancel(cancel)
+                GLib.idle_add(self.launched, proc, session, generation)
             except Exception as exc:
                 if 'proc' in locals() and proc.poll() is None:
                     proc.terminate()
+                    try:
+                        proc.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        proc.kill()
+                        proc.wait()
                 if 'proc' in locals():
                     (RUNTIME_DIR / f'session-{proc.pid}.json').unlink(missing_ok=True)
-                GLib.idle_add(self.launch_failed, str(exc))
+                GLib.idle_add(self.launch_failed, str(exc), generation, isinstance(exc, OSError))
         threading.Thread(target=launch, daemon=True).start()
 
-    def launched(self, proc, session):
+    def launched(self, proc, session, generation=None):
+        if generation is not None and generation != self._connection_generation:
+            if proc.poll() is None:
+                proc.terminate()
+            (RUNTIME_DIR / f'session-{proc.pid}.json').unlink(missing_ok=True)
+            return
+        self._launching = False
         self.proc, self.session = proc, session
         self._started = False
         self._launch_time = time.monotonic()
@@ -466,25 +630,86 @@ class MainWindow(Adw.ApplicationWindow):
             proc.wait(timeout=5)
             (RUNTIME_DIR / f'session-{proc.pid}.json').unlink(missing_ok=True)
             self.proc, self.session = None, None
-            self.launch_failed(str(exc))
+            self.launch_failed(str(exc), generation)
             return
         if not self.cfg['remember']:
             self.password.set_text('')
-        self.controls.set_visible(True)
+        self.controls.set_visible(False)
         self.connect_btn.set_sensitive(True)
-        self.connect_btn.set_label('Cancelar conexão')
+        self.connect_btn.set_label('Cancelar reconexão' if self._reconnecting else 'Cancelar conexão')
 
-    def launch_failed(self, message):
+    def launch_failed(self, message, generation=None, retryable=False):
+        if generation is not None and generation != self._connection_generation:
+            return
+        self._launching = False
+        if self._reconnecting and retryable and not self._manual_disconnect:
+            self.schedule_reconnect(message)
+            return
+        self.finish_connection('Não foi possível conectar. ' + message)
+
+    def finish_connection(self, error='', status='Sessão encerrada'):
+        self._connection_request, self._retry_plan = None, None
+        self._launching = self._reconnecting = False
+        self._status_generation += 1
+        self.controls.set_visible(False)
         self.form.set_sensitive(True)
         self.connect_btn.set_sensitive(True)
         self.connect_btn.set_label('Conectar ao Windows')
-        self.show_error('Não foi possível conectar. ' + message)
-        self.schedule_status()
+        self.connect_btn.add_css_class('suggested-action')
+        self.set_status(status, 'Você pode conectar novamente.')
+        self.show_error(error)
+
+    def schedule_reconnect(self, message='A conexão com o Windows foi interrompida.'):
+        delay = self._retry_plan.next_delay() if self._retry_plan else None
+        if delay is None:
+            self.finish_connection('Não foi possível recuperar a conexão após 5 tentativas. '
+                                   'Confira a rede e tente conectar novamente. ' + message)
+            self.present()
+            return
+        self._reconnecting = True
+        self._retry_due = time.monotonic() + delay
+        self.controls.set_visible(False)
+        self.form.set_sensitive(False)
+        self.connect_btn.set_sensitive(True)
+        self.connect_btn.set_label('Cancelar reconexão')
+        self.show_error('')
+        def retry():
+            self._retry_source = 0
+            if self._retry_plan and not self._retry_plan.cancelled:
+                self.start_connection()
+            return GLib.SOURCE_REMOVE
+        self._retry_source = GLib.timeout_add(int(delay * 1000), retry)
+        self.update_reconnect_status()
+        self.present()
+
+    def update_reconnect_status(self):
+        seconds = max(0, int(self._retry_due - time.monotonic() + .999))
+        self.set_status(f'Reconectando em {seconds}s',
+            f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}. '
+            'Você pode cancelar e conectar manualmente.')
+
+    def cancel_connection(self):
+        self._manual_disconnect = True
+        if self._retry_plan:
+            self._retry_plan.cancel()
+        if self._retry_source:
+            GLib.source_remove(self._retry_source)
+            self._retry_source = 0
+        self._connection_cancel.set()
+        self._connection_generation += 1
+        if self.proc:
+            self.control('disconnect')
+        else:
+            self.finish_connection(status='Reconexão cancelada' if self._reconnecting else 'Conexão cancelada')
 
     def control(self, command):
+        if command == 'disconnect':
+            self._manual_disconnect = True
+            if self._retry_plan:
+                self._retry_plan.cancel()
         if not self.proc:
             return
-        if not self._started and command == 'disconnect':
+        if (not self._started or self._reconnecting) and command == 'disconnect':
             self.proc.terminate()
             return
         try:
@@ -495,35 +720,47 @@ class MainWindow(Adw.ApplicationWindow):
 
     def poll_session(self):
         if not self.proc:
+            if self._retry_source:
+                self.update_reconnect_status()
             return GLib.SOURCE_CONTINUE
         code = self.proc.poll()
         if code is not None:
             started, session = self._started, self.session
             (RUNTIME_DIR / f'session-{self.proc.pid}.json').unlink(missing_ok=True)
-            self.x11.close()
+            if self.x11:
+                self.x11.close()
             self.proc, self.session, self.x11 = None, None, None
             self._started = False
-            self.controls.set_visible(False)
-            self.form.set_sensitive(True)
-            self.connect_btn.set_label('Conectar ao Windows')
-            self.connect_btn.add_css_class('suggested-action')
-            self.set_status('Sessão encerrada', 'Você pode conectar novamente.')
-            if not started or code not in (0, 11, 131):
-                self.show_error(f"A conexão terminou (código {code}). Abra os registros para verificar o motivo.")
+            if self._retry_plan and self._retry_plan.should_retry(code, connected=started,
+                                                                  recovering=self._reconnecting):
+                self.schedule_reconnect()
+                return GLib.SOURCE_CONTINUE
+            error = '' if self._manual_disconnect or started and code in (0, 1, 2, 11, 12) else \
+                f'A conexão terminou (código {code}). Abra os registros para verificar o motivo.'
+            self.finish_connection(error)
             self.present()
             return GLib.SOURCE_CONTINUE
         state = self.x11.state(self.proc.pid)
         self.dispatch_local_shortcuts()
         if state and not self._started:
             self._started = True
+            self._reconnecting = False
+            if self._retry_plan:
+                self._retry_plan.reset()
             self.connect_btn.set_label('Desconectar')
+            self.controls.set_visible(True)
             self.connect_btn.remove_css_class('suggested-action')
             if self.session['start_fullscreen']:
                 self.control('fullscreen')
         if state:
+            if self._connection_request:
+                self._connection_request['cfg']['fullscreen'] = bool(state[1])
             self.set_status('Conectado · ' + ('Tela cheia' if state[1] else 'Modo janela'),
                 f"{self.cfg['user']} em {self.cfg['server']} · {self.session['connector']}",
                 'network-transmit-receive-symbolic')
+        elif self._reconnecting:
+            self.set_status('Reconectando ao Windows',
+                f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}. Você pode cancelar.')
         elif time.monotonic() - self._launch_time > 10:
             self.set_status('Aguardando a sessão', 'A autenticação está em andamento. Você pode cancelar.')
         return GLib.SOURCE_CONTINUE
@@ -536,25 +773,39 @@ class MainWindow(Adw.ApplicationWindow):
         if len(requests) % 2:
             return
         for action, reverse in zip(requests[::2], requests[1::2]):
-            pid, token = self.proc.pid, self.session['token']
-            def done(connection, result, pid=pid, token=token):
-                try:
-                    accepted = connection.call_finish(result).unpack()[0]
-                    if not accepted:
-                        raise RuntimeError('A integração local recusou o atalho.')
-                except (GLib.Error, RuntimeError) as exc:
-                    self.toast.add_toast(Adw.Toast(title='Não foi possível executar o atalho local: ' + str(exc)))
-                finally:
-                    if self.proc and self.proc.pid == pid:
-                        self.x11.control(pid, token, 6)
+            self.dispatch_local_request('LocalShortcut', '(usub)', (action, bool(reverse)))
+        accelerators = self.x11.property(window, '_AJR_LOCAL_ACCELERATORS_V2', delete=True) or []
+        if len(accelerators) % 3:
+            return
+        for offset in range(0, len(accelerators), 3):
+            self.dispatch_local_request('LocalAccelerator', '(usuuu)', tuple(accelerators[offset:offset + 3]))
+
+    def dispatch_local_request(self, method, signature, arguments):
+        pid, token = self.proc.pid, self.session['token']
+        def done(connection, result, pid=pid, token=token):
             try:
-                Gio.bus_get_sync(Gio.BusType.SESSION, None).call(
-                    LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, 'LocalShortcut',
-                    GLib.Variant('(usub)', (pid, token, action, bool(reverse))),
-                    GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1500, None, done)
-            except GLib.Error as exc:
-                self.toast.add_toast(Adw.Toast(title='Integração de teclado indisponível: ' + exc.message))
-                self.x11.control(pid, token, 6)
+                accepted = connection.call_finish(result).unpack()[0]
+                if not accepted:
+                    raise RuntimeError('A integração local recusou o atalho.')
+            except (GLib.Error, RuntimeError) as exc:
+                self.toast.add_toast(Adw.Toast(title='Não foi possível executar o atalho local: ' + str(exc)))
+            finally:
+                if self.proc and self.proc.pid == pid:
+                    # Let compositor input queued by the bridge drain before
+                    # the client can grab the keyboard and forward keys again.
+                    def resume():
+                        if self.proc and self.proc.pid == pid:
+                            self.x11.control(pid, token, 6)
+                        return GLib.SOURCE_REMOVE
+                    GLib.timeout_add(100, resume)
+        try:
+            Gio.bus_get_sync(Gio.BusType.SESSION, None).call(
+                LOCAL_BUS, LOCAL_PATH, LOCAL_INTERFACE, method,
+                GLib.Variant(signature, (pid, token, *arguments)),
+                GLib.VariantType.new('(b)'), Gio.DBusCallFlags.NONE, 1500, None, done)
+        except GLib.Error as exc:
+            self.toast.add_toast(Adw.Toast(title='Integração de teclado indisponível: ' + exc.message))
+            self.x11.control(pid, token, 6)
 
     def open_logs(self):
         DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -563,7 +814,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def close_requested(self, *_):
         # Keep the session and its controller available; closing the GUI hides it.
-        if self.proc or not self.form.get_sensitive():
+        if self.connection_busy() or self._updating:
             self.set_visible(False)
             return True
         self.persist()

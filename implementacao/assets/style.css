@@ -20,9 +20,8 @@
 .ajr-profile-name { font-size: 13px; font-weight: 600; }
 .ajr-profile-host { font-size: 11px; color: @ajr_muted; }
 .ajr-sidebar-footer { border-top: 1px solid @ajr_border; padding-top: 18px; }
-.ajr-sidebar-tagline { color: @ajr_muted; font-size: 12px; }
+.ajr-navigation { background: @ajr_window; padding: 16px 32px; }
 .ajr-workspace { padding: 24px 32px 20px; }
-.ajr-page-title { font-size: 29px; font-weight: 750; letter-spacing: -.7px; }
 .ajr-muted { color: @ajr_muted; font-size: 13px; }
 .ajr-hero { background: @ajr_surface; border: 1px solid @ajr_border; border-radius: 16px; padding: 16px 24px; }
 .ajr-hero-title { font-size: 22px; font-weight: 700; letter-spacing: -.4px; }
