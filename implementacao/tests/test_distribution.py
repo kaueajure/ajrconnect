@@ -58,6 +58,7 @@ with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GN
     for asset in ('style.css', 'ajr-connect.svg', 'workspace.svg'):
         assert (install.APP / 'assets' / asset).is_file()
     assert (install.APP / 'keyboard.py').is_file()
+    assert (install.APP / 'memory_monitor.py').is_file()
     assert install.desktop_exec(home / '.local/bin/ajr-connect') in desktop.read_text()
     metadata = json.loads((install.DATA / 'last-install.json').read_text())
     if sys.argv[2] in ('hot-update', 'legacy-update'):

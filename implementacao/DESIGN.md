@@ -149,3 +149,22 @@ local, e libera todos os modificadores mesmo em falhas de envio.
 `tests/check_portal_session.py` cria um compositor, HOME, barramento D-Bus e
 serviços de portal privados. A automação AT-SPI aprova somente esse diálogo
 de teste e verifica o atalho real e a restauração da autorização.
+
+`resolution` é uma preferência por perfil: monitor, 4K, QHD, 1080p, 720p,
+480p ou 360p. O framebuffer remoto é fixado ao conectar; smart sizing adapta
+a apresentação local. A qualidade usa flags visuais explícitas, mantendo temas,
+wallpaper, fontes e 32 bits sem habilitar GFX. O perfil de rede broadband deixou
+de interferir na aparência. A composição adicional permanece desativada.
+
+`ram_alert` e `ram_limit_gib` também pertencem ao perfil. O módulo
+`memory_monitor.py` prepara um diretório temporário de sessão, compartilhado
+como AJRMonitor, com um coletor PowerShell iniciado pelo usuário no Windows.
+As leituras representam RAM física usada no guest, não RSS do cliente nem
+memória reservada pelo hipervisor. Ausência de dados é um estado explícito.
+O controlador apresenta o aviso e oferece continuar ou desconectar; não desliga
+a VM e não reconecta após a decisão de parar. Uma identificação exclusiva e
+sequências crescentes impedem o reaproveitamento de leituras antigas. Dados
+maiores que 4 KiB, links, campos inválidos e amostras sem atualização por 15s
+são recusados. O diretório é preservado em tentativas de reconexão e removido
+ao encerrar a conexão. O coletor usa a política Bypass somente em seu processo,
+sem mudar a política de execução do Windows.

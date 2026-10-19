@@ -1,6 +1,6 @@
 # AJR Connect 6
 
-Versão de teste. Consulte a versão na janela **Atualizações** do aplicativo.
+Versão de teste: **6.0.0-beta.10**. Consulte também a janela **Atualizações** do aplicativo.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles integrada ao cliente RDP.
 
@@ -12,6 +12,15 @@ Em janelas menores, abra a barra lateral pelo botão do cabeçalho ou use o sele
 de conexão acima das abas. Em janelas baixas, use o botão da barra lateral.
 Os campos de acesso empilham em janelas menores; os controles da sessão
 aparecem no rodapé durante a conexão. O tema escolhido é persistente.
+
+## Novidades desta versão
+
+- Todos os modos de qualidade solicitam cores em 32 bits e mantêm temas, papel de parede e suavização de fontes.
+- Resolução do Windows configurável por conexão, da resolução do monitor até 4K.
+- Alerta opcional de RAM usada dentro do Windows, com coletor iniciado pelo usuário e limite por conexão.
+
+Esses ajustes preservam a aparência solicitada ao servidor; a mudança de azul
+para roxo relatada ainda depende de reprodução e comparação visual.
 
 ## Requisitos de execução
 

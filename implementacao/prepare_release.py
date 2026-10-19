@@ -28,45 +28,41 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — atualizar sem sair do desktop
+    return f'''# AJR Connect {TAG.removeprefix('v')} — aparência, resolução e RAM da VM
 
 ## Mudanças
 
-- AJR Bar integrada à janela RDP, com Minimizar, Sair de tela cheia e Desconectar.
-  A barra funciona ao reabrir o aplicativo e reconectar o Windows, inclusive
-  ao migrar uma extensão antiga, sem encerrar a sessão Linux.
-- Atalhos locais pelo portal do sistema quando a integração GNOME não está
-  disponível. Solicita somente teclado, com opção de lembrar a autorização;
-  não solicita captura de tela, acesso ao mouse ou à área de transferência.
-- Integração GNOME atual preservada como backend opcional para atalhos.
-  A extensão antiga é desativada pelo aplicativo para evitar barras duplicadas.
-- Temas claro/escuro, escala da barra e ações protegidas contra cliques acidentais.
-  Perfis, senhas no chaveiro, compartilhamentos e reconexão preservados.
+- Os três modos de qualidade solicitam cores em 32 bits, temas, papel de parede
+  e suavização de fontes. O preset de rede deixou de alterar essas preferências.
+- Resolução do Windows salva por conexão: automática pelo monitor, 4K, QHD,
+  1080p, 720p, 480p e 360p, com ajuste da imagem à janela local.
+- Monitoramento opcional da RAM física usada dentro do Windows, com limite por
+  conexão e aviso para continuar ou desconectar sem desligar a VM.
+- Coletor iniciado pelo usuário em **Mais opções → RAM da VM**, compartilhamento
+  temporário por sessão e descarte de leituras inválidas ou antigas.
+- Perfis, senhas no chaveiro, pastas compartilhadas e reconexão preservados.
+
+A mudança de azul para roxo relatada ainda precisa de reprodução e comparação
+visual. Esta versão não é apresentada como correção comprovada desse sintoma.
 
 ## Atualizar
 
-Abra **Mais opções → Atualizações**, habilite **Incluir versões de teste**,
-escolha **Baixar e atualizar** e depois **Reiniciar aplicativo**.
-Desconecte o Windows antes de instalar e reconecte depois.
+Desconecte o Windows antes de instalar. Execute no terminal Linux, sem sudo:
 
 {download_commands(repository)}
-Quando o sistema pedir autorização para os atalhos Linux, ative **Permitir
-interação remota**, mantenha **Lembrar esta seleção** e confirme. A solicitação
-é somente de teclado; não compartilha a imagem da tela. Se recusar, pode usar
-**Autorizar** no aplicativo para tentar novamente.
+Também é possível usar **Mais opções → Atualizações**, ativar **Incluir versões
+de teste**, verificar, instalar e reiniciar o aplicativo.
 
 ## Validação
 
-- 76 testes automatizados aprovados.
-- Teclado nativo e cliques da barra testados em um servidor X privado.
-- Integração e rollback da ponte GNOME testados em compositor isolado.
-- Portal real do GNOME 46: autorização de teclado, atalho de área de trabalho
-  e restauração da permissão após reabrir, com o mesmo processo GNOME Shell.
-- 37 capturas GTK4 e da barra nativa, com temas claro/escuro, janela mínima,
-  autorização e escala 2. Capturas revisadas para overflow e ações ocultas.
+- 86 testes automatizados aprovados, cobrindo resolução, parâmetros visuais reais do FreeRDP,
+  monitoramento de RAM, perfis, reconexão, instalação e atualização.
+- Verificações isoladas da interface, teclado e integração GNOME.
+- Pacotes Linux e fontes com SHA256 e verificação de dados privados.
 
-Não foi aberta uma conexão RDP real nem consultado o chaveiro do usuário nos testes.
-O pacote é de teste, Linux x86_64, FreeRDP/WinPR 2.11.5.
+Os testes de publicação não abrem a VM nem consultam o chaveiro real.
+A versão é de teste, para Linux x86_64 com FreeRDP/WinPR 2.11.5.
+A validação em uma instalação limpa continua pendente.
 '''
 
 

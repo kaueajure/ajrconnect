@@ -2,6 +2,7 @@
 from pathlib import Path
 import copy
 import json
+import math
 import os
 import re
 import subprocess
@@ -15,7 +16,17 @@ RUNTIME_DIR = Path(os.environ.get('XDG_RUNTIME_DIR', str(Path.home() / '.cache')
 NATIVE = APP_DIR / 'ajr-freerdp'
 if not NATIVE.exists():
     NATIVE = APP_DIR / 'native/ajr-freerdp'
-DEFAULT = dict(server='', user='', shares=[], quality=0,
+RESOLUTIONS = (
+    ('monitor', 'Automática · resolução do monitor', None),
+    ('4k', '4K · 3840 × 2160', (3840, 2160)),
+    ('2k', '2K / QHD · 2560 × 1440', (2560, 1440)),
+    ('1080p', '1080p · 1920 × 1080', (1920, 1080)),
+    ('720p', '720p · 1280 × 720', (1280, 720)),
+    ('480p', '480p · 854 × 480', (854, 480)),
+    ('360p', '360p · 640 × 360', (640, 360)),
+)
+DEFAULT = dict(server='', user='', shares=[], quality=0, resolution='monitor',
+    ram_alert=False, ram_limit_gib=4.0,
     monitor='0', monitor_connector='', fullscreen=False, capture_keyboard=True,
     clipboard=True, remember=False, keyboard_mode='fullscreen',
     fullscreen_shortcut='<Control><Alt>Return',
@@ -47,7 +58,7 @@ def normalize_settings(data):
     for key in ('server', 'user', 'monitor', 'monitor_connector'):
         cfg[key] = str(cfg[key]) if isinstance(cfg[key], (str, int)) else DEFAULT[key]
     for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember',
-                'remote_alt_tab', 'remote_super', 'remote_alt_f4', 'auto_reconnect'):
+                'remote_alt_tab', 'remote_super', 'remote_alt_f4', 'auto_reconnect', 'ram_alert'):
         cfg[key] = cfg[key] if isinstance(cfg[key], bool) else DEFAULT[key]
     if not isinstance(data, dict) or 'keyboard_mode' not in data:
         cfg['keyboard_mode'] = 'fullscreen' if cfg['capture_keyboard'] else 'local'
@@ -66,6 +77,13 @@ def normalize_settings(data):
         cfg['quality'] = max(0, min(2, int(cfg['quality'])))
     except (ValueError, TypeError):
         cfg['quality'] = 0
+    if cfg['resolution'] not in tuple(item[0] for item in RESOLUTIONS):
+        cfg['resolution'] = 'monitor'
+    try:
+        value = float(cfg['ram_limit_gib'])
+        cfg['ram_limit_gib'] = value if math.isfinite(value) and 0.25 <= value <= 65536 else 4.0
+    except (TypeError, ValueError):
+        cfg['ram_limit_gib'] = 4.0
     cfg['shares'] = [dict(name=s['name'], path=s['path']) for s in cfg.get('shares', [])
                      if isinstance(s, dict) and isinstance(s.get('name'), str)
                      and isinstance(s.get('path'), str)] \
@@ -163,33 +181,44 @@ def resolve_monitor(cfg, monitors):
                 next((m for m in monitors if m['primary']), None))
 
 
-def window_geometry(monitor):
+def remote_resolution(cfg, monitor):
+    selected = next((size for key, _label, size in RESOLUTIONS
+                     if key == cfg.get('resolution', 'monitor')), None)
+    return selected or (monitor['width'], monitor['height'])
+
+
+def window_geometry(monitor, remote_size=None):
     # Preserve the remote aspect ratio, with space for GNOME decorations.
     scale = min(0.8, (monitor['width'] - 96) / monitor['width'],
                 (monitor['height'] - 128) / monitor['height'])
-    w, h = max(320, int(monitor['width'] * scale)), max(240, int(monitor['height'] * scale))
+    remote_w, remote_h = remote_size or (monitor['width'], monitor['height'])
+    fit = min(monitor['width'] * scale / remote_w, monitor['height'] * scale / remote_h)
+    w, h = max(320, int(remote_w * fit)), max(240, int(remote_h * fit))
     return (monitor['x'] + (monitor['width'] - w) // 2,
             monitor['y'] + (monitor['height'] - h) // 2, w, h)
 
 
 def build_command(cfg, monitor, native=NATIVE):
-    x, y, w, h = window_geometry(monitor)
+    remote_w, remote_h = remote_resolution(cfg, monitor)
+    x, y, w, h = window_geometry(monitor, (remote_w, remote_h))
     cmd = [str(native), f"/v:{cfg['server']}", f"/u:{cfg['user']}",
            '/t:AJR Connect VM', '/wm-class:AJRConnect', '/cert:ignore',
            '/from-stdin:force', f"/monitors:{monitor['id']}",
-           f"/w:{monitor['width']}", f"/h:{monitor['height']}",
+           f'/w:{remote_w}', f'/h:{remote_h}',
            f'/smart-sizing:{w}x{h}', f'/window-position:{x}x{y}',
-           '/network:broadband', '/gdi:sw',
+           # Explicit visual flags avoid network presets changing Windows themes.
+           # /bpp also prevents FreeRDP's implicit autodetect from enabling GFX.
+           '/gdi:sw', '+themes', '+wallpaper', '+fonts', '-aero',
            '-auto-reconnect',
-           '/bpp:24' if cfg['quality'] == 2 else '/bpp:32',
+           '/bpp:32',
            '+grab-keyboard' if cfg.get('keyboard_mode', 'fullscreen') != 'local'
                 and cfg['capture_keyboard'] else '-grab-keyboard',
            '+clipboard' if cfg['clipboard'] else '-clipboard']
-    if cfg['quality'] == 1:
-        cmd.append('+window-drag')
-    elif cfg['quality'] == 2:
-        cmd += ['-wallpaper', '-themes', '-menu-anims']
+    cmd += ['+menu-anims' if cfg['quality'] == 1 else '-menu-anims',
+            '-window-drag' if cfg['quality'] == 2 else '+window-drag']
     for share in cfg['shares']:
+        if cfg.get('ram_alert') and share['name'].casefold() == 'ajrmonitor':
+            raise ValueError('O nome AJRMonitor é reservado para o monitoramento de RAM. Renomeie essa pasta.')
         path = str(Path(share['path']).expanduser().resolve())
         if ',' in path or ',' in share['name']:
             raise ValueError('O nome e o caminho da pasta não podem conter vírgulas.')

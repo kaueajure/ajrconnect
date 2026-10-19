@@ -41,7 +41,8 @@ def validate_layout(window):
     widgets = [*window.ui.tab_buttons.values(), window.connect_btn, window.ui.save_button,
                window.status, window.profile_name, window.server, window.user, window.password,
                window.controls, window.error, window.monitor, window.fullscreen, window.shortcut,
-               window.quality, window.keyboard_mode, window.keyboard_rules, window.share_list,
+               window.quality, window.resolution, window.ram_alert, window.ram_limit, window.ram_status,
+               window.keyboard_mode, window.keyboard_rules, window.share_list,
                window.clipboard, window.ui.empty_share_state]
     for widget in widgets:
         if not widget.get_mapped():
@@ -200,6 +201,32 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.set_default_size(620, 480)
     win.ui.show_page('connection')
     capture(win, 'ajr-connect-keyboard-authorization-minimum')
+    win.integration_banner.set_revealed(False)
+    win.set_default_size(1120, 1000)
+    win.ui.show_page('display')
+    win.resolution.set_selected(1)
+    win.ram_alert.set_active(True)
+    win.ram_limit.set_value(2)
+    win.ui.page_scrolls['display'].get_vadjustment().set_value(0)
+    capture(win, 'ajr-connect-resolution-memory')
+    from memory_monitor import MemoryMonitor, MemorySample, GIB
+    memory = MemoryMonitor.create(Path.home() / 'memory', 2)
+    # These captures use synthetic telemetry, not a running RDP process.
+    GLib.source_remove(win._poll)
+    class Proc:
+        pid = 42000
+    win.proc = Proc()
+    win._connection_request = dict(memory=memory)
+    win.open_memory_monitor()
+    capture(win._ram_guide, 'ajr-connect-memory-setup')
+    win._ram_guide.response('close')
+    with patch.object(win, 'control'):
+        win.show_memory_warning(memory, MemorySample(3 * GIB, 4 * GIB))
+        capture(win._ram_dialog, 'ajr-connect-memory-warning')
+        win._ram_dialog.response('continue')
+    win.proc = None
+    win.finish_connection()
+    win._poll = GLib.timeout_add(250, win.poll_session)
     win.close()
     drain()
 print('PASS: V2 light/dark, dialogs, folders, reconnecting, errors, session controls and '

@@ -3,7 +3,7 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.9**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.10**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
 atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
@@ -185,6 +185,54 @@ a tentativa; os controles da barra continuam disponíveis.
 O cliente preserva o compartilhamento de pastas e usa renderização por software,
 sem ativar `/gfx`, `/gdi:hw` ou a floatbar visual nativa do FreeRDP.
 Reconecte depois de alterar resolução ou escala dos monitores.
+
+### Resolução e aparência do Windows
+
+Em **Tela e teclado → Resolução do Windows**, escolha a resolução do monitor
+ou **4K (3840×2160), 2K/QHD (2560×1440), 1080p, 720p, 480p ou 360p**.
+A escolha é salva por conexão e aplicada ao conectar ou reconectar. A resolução
+do Windows é independente do tamanho da janela local; 4K também pode ser
+exibido, redimensionado, em um monitor menor.
+
+Todos os modos de qualidade usam 32 bits, preservam temas, papel de parede e
+suavização de fontes e desativam a composição adicional do desktop solicitada
+pelo perfil anterior. **Mais qualidade** permite animações e arrastar a janela
+com conteúdo; **Equilibrada** desativa animações; **Mais leve** também desativa
+arrastar com conteúdo. Para reduzir a quantidade de pixels transmitidos, escolha
+uma resolução menor. O cliente continua usando `/gdi:sw`, sem ativar GFX.
+
+### Alerta de RAM da VM
+
+Em **Tela e teclado → Memória da VM**, ative **Avisar ao ultrapassar o limite**
+e informe o limite em **GiB**. A configuração é salva por conexão. Trata-se de
+um limite de alerta sobre a RAM física usada **dentro do Windows**, não de uma
+reserva de memória no Docker/hipervisor nem da RAM consumida pelo cliente Linux.
+
+Depois de conectar, abra **Mais opções → RAM da VM**, copie o caminho e execute
+no Windows com **Win+R**:
+
+```text
+\\tsclient\AJRMonitor\iniciar.cmd
+```
+
+O coletor PowerShell consulta `Win32_OperatingSystem` a cada três segundos e
+envia apenas os contadores de memória pelo compartilhamento RDP da sessão.
+Não exige senha adicional nem instala um serviço. O lançador usa a política
+de execução `Bypass` apenas no processo do coletor, sem alterar a política do
+sistema. É necessário que o servidor permita redirecionamento de unidades.
+O menu mostra o uso atual e avisa quando não há leitura disponível.
+
+Ao ultrapassar o limite, o AJR exibe **Continuar** e **Parar sessão**, inclusive
+quando o RDP está em tela cheia. Continuar reconhece o aviso; um novo aviso só
+aparece após o uso cair abaixo de 90% do limite e ultrapassá-lo novamente.
+Parar desconecta o cliente, cancela a reconexão automática e mantém a VM ligada.
+O coletor encerra após perder o compartilhamento da sessão. Se uma queda longa
+encerrar o coletor, execute novamente o caminho após reconectar.
+
+O AJR descarta dados de outra sessão, arquivos inválidos e leituras que não
+avançaram por mais de 15 segundos. Sem o coletor, não apresenta um valor de
+RAM presumido. Reservar ou impor um teto físico de RAM exige configuração no
+hipervisor que executa a VM.
 
 ## Compilar e testar
 

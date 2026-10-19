@@ -6,6 +6,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Pango, Gio, GObject
 from dialogs import ShortcutEditor
 from keyboard import shortcut_parts
+from core import RESOLUTIONS
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
 
@@ -114,6 +115,7 @@ class DesktopView:
         header.pack_end(self.theme_button)
         menu = Gio.Menu()
         for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
+                                       ('memory', 'RAM da VM', w.open_memory_monitor),
                                        ('updates', 'Atualizações', w.open_updates)]:
             action = Gio.SimpleAction.new('ui-' + name, None)
             action.connect('activate', lambda _a, _p, cb=callback: cb())
@@ -465,6 +467,11 @@ class DesktopView:
         refresh.connect('clicked', lambda *_: w.refresh_monitors())
         w.monitor.add_suffix(refresh)
         display.add(w.monitor)
+        w.resolution = Adw.ComboRow(title='Resolução do Windows',
+            subtitle='Aplicada ao conectar. A imagem se ajusta ao monitor escolhido.',
+            model=Gtk.StringList.new([item[1] for item in RESOLUTIONS]),
+            selected=next(i for i, item in enumerate(RESOLUTIONS) if item[0] == w.cfg['resolution']))
+        display.add(w.resolution)
         w.fullscreen = Adw.SwitchRow(title='Iniciar em tela cheia', active=w.cfg['fullscreen'])
         display.add(w.fullscreen)
         w.shortcut = Adw.ActionRow(title='Atalho de tela cheia')
@@ -473,8 +480,31 @@ class DesktopView:
         w.shortcut.add_suffix(change)
         display.add(w.shortcut)
         w.quality = Adw.ComboRow(title='Qualidade da imagem',
+            subtitle='Todos os modos preservam cores, tema, papel de parede e fontes.',
             model=Gtk.StringList.new(['Equilibrada', 'Mais qualidade', 'Mais leve']), selected=w.cfg['quality'])
         display.add(w.quality)
+        memory = Adw.PreferencesGroup(title='Memória da VM',
+            description='Avisa sobre a RAM usada dentro do Windows. Não altera a RAM reservada pelo hipervisor.')
+        box.append(memory)
+        w.ram_alert = Adw.SwitchRow(title='Avisar ao ultrapassar o limite',
+            subtitle='Requer iniciar o coletor no Windows em Mais opções → RAM da VM.',
+            active=w.cfg['ram_alert'])
+        memory.add(w.ram_alert)
+        w.ram_limit = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=w.cfg['ram_limit_gib'],
+            lower=.25, upper=65536, step_increment=.25, page_increment=1), digits=2,
+            valign=Gtk.Align.CENTER, numeric=True)
+        w.ram_limit.update_property([Gtk.AccessibleProperty.LABEL], ['Limite de alerta em GiB'])
+        limit = Adw.ActionRow(title='Limite de alerta (GiB)',
+            subtitle='Ao exceder: continuar usando ou desconectar a sessão.')
+        limit.add_suffix(w.ram_limit)
+        memory.add(limit)
+        w.ram_limit.set_sensitive(w.cfg['ram_alert'])
+        w.ram_alert.connect('notify::active', lambda row, *_: w.ram_limit.set_sensitive(row.get_active()))
+        w.ram_status = Adw.ActionRow(title='Uso da RAM do Windows',
+            subtitle='Inicie o coletor após conectar.' if w.cfg['ram_alert'] else 'Monitoramento desativado.')
+        w.ram_alert.connect('notify::active', lambda row, *_: w.ram_status.set_subtitle(
+            'Inicie o coletor após conectar.' if row.get_active() else 'Monitoramento desativado.'))
+        memory.add(w.ram_status)
         keyboard = Adw.PreferencesGroup(title='Atalhos',
             description='Ativado: Windows · Desativado: este computador')
         box.append(keyboard)

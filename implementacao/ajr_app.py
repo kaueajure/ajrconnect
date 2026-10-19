@@ -16,13 +16,14 @@ import threading
 import time
 import sys
 from core import (DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
-                  DEFAULT, PROFILE_KEYS, detect_monitors, host_port, load_cfg,
+                  DEFAULT, PROFILE_KEYS, RESOLUTIONS, detect_monitors, host_port, load_cfg,
                   resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
 from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
 from keyboard import native_rules, validate_rules, x11_modifiers, desktop_bindings, desktop_shortcut
 from keyboard_portal import KeyboardPortal
 from reconnect import RetryPlan
+from memory_monitor import MemoryMonitor, START_COMMAND, GIB, describe
 import updates
 from update_dialog import UpdateWindow
 from ui import DesktopView
@@ -80,6 +81,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_generation = 0
         self._connection_cancel = threading.Event()
         self._retry_source, self._retry_due = 0, 0
+        self._ram_dialog = self._ram_guide = None
+        self._ram_next_poll = 0
         self._updating = self._update_ready = False
         self._available_release, self._update_window = None, None
         self.set_default_size(1120, 820)
@@ -182,6 +185,8 @@ class MainWindow(Adw.ApplicationWindow):
     def persist(self):
         self.cfg.update(server=self.server.get_text().strip(), user=self.user.get_text().strip(),
             quality=int(self.quality.get_selected()), fullscreen=self.fullscreen.get_active(),
+            resolution=RESOLUTIONS[self.resolution.get_selected()][0],
+            ram_alert=self.ram_alert.get_active(), ram_limit_gib=self.ram_limit.get_value(),
             keyboard_mode=('fullscreen', 'always', 'local')[self.keyboard_mode.get_selected()],
             capture_keyboard=self.keyboard_mode.get_selected() != 2, clipboard=self.clipboard.get_active(),
             remember=self.remember.get_active(), auto_reconnect=self.auto_reconnect.get_active())
@@ -235,6 +240,12 @@ class MainWindow(Adw.ApplicationWindow):
         self.remember.set_active(self.cfg['remember'])
         self.auto_reconnect.set_active(self.cfg['auto_reconnect'])
         self.quality.set_selected(self.cfg['quality'])
+        self.resolution.set_selected(next(i for i, item in enumerate(RESOLUTIONS)
+                                          if item[0] == self.cfg['resolution']))
+        self.ram_alert.set_active(self.cfg['ram_alert'])
+        self.ram_limit.set_value(self.cfg['ram_limit_gib'])
+        self.ram_status.set_subtitle('Inicie o coletor após conectar.' if self.cfg['ram_alert']
+                                     else 'Monitoramento desativado.')
         self.keyboard_mode.set_selected(('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
         for key, row in self.keyboard_rows.items():
             row.set_active(self.cfg[key])
@@ -563,7 +574,20 @@ class MainWindow(Adw.ApplicationWindow):
         except (ValueError, OSError, subprocess.TimeoutExpired, GLib.Error) as exc:
             self.show_error(str(exc))
             return
-        self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor,
+        memory = None
+        if self.cfg['ram_alert']:
+            try:
+                memory = MemoryMonitor.create(RUNTIME_DIR / 'memory', self.cfg['ram_limit_gib'])
+                if ',' in str(memory.directory):
+                    raise ValueError('O diretório do monitoramento de RAM não pode conter vírgulas.')
+                command.append(f'/drive:AJRMonitor,{memory.directory}')
+            except (OSError, ValueError) as exc:
+                if memory:
+                    memory.close()
+                self.show_error('Não foi possível preparar o monitoramento de RAM: ' + str(exc))
+                return
+        self._ram_next_poll = 0
+        self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor, memory=memory,
             command=command, password=self.password.get_text(), key=shortcut_key,
             mods=x11_modifiers(shortcut_mods), rules=rule_protocol,
             scale=self.get_scale_factor(), dark=Adw.StyleManager.get_default().get_dark())
@@ -598,6 +622,8 @@ class MainWindow(Adw.ApplicationWindow):
                         if not Path(share['path']).expanduser().is_dir():
                             raise ValueError('A pasta compartilhada não está mais disponível: ' + share['name'])
                     command = build_command(cfg, monitor)
+                    if request.get('memory'):
+                        command.append(f"/drive:AJRMonitor,{request['memory'].directory}")
                 with socket.create_connection(host_port(cfg['server']), timeout=3):
                     pass
                 updates.check_cancel(cancel)
@@ -682,6 +708,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.finish_connection('Não foi possível conectar. ' + message)
 
     def finish_connection(self, error='', status='Sessão encerrada'):
+        self.close_memory_dialogs()
+        if self._connection_request and self._connection_request.get('memory'):
+            self._connection_request['memory'].close()
+        self.ram_status.set_subtitle('Inicie o coletor após conectar.' if self.cfg['ram_alert']
+                                     else 'Monitoramento desativado.')
         self._connection_request, self._retry_plan = None, None
         self._launching = self._reconnecting = False
         self._status_generation += 1
@@ -759,6 +790,7 @@ class MainWindow(Adw.ApplicationWindow):
             return GLib.SOURCE_CONTINUE
         code = self.proc.poll()
         if code is not None:
+            self.close_memory_dialogs()
             started, session = self._started, self.session
             (RUNTIME_DIR / f'session-{self.proc.pid}.json').unlink(missing_ok=True)
             if self.x11:
@@ -787,6 +819,7 @@ class MainWindow(Adw.ApplicationWindow):
             if self.session['start_fullscreen']:
                 self.control('fullscreen')
         if state:
+            self.poll_memory()
             if self._connection_request:
                 self._connection_request['cfg']['fullscreen'] = bool(state[1])
             self.set_status('Conectado · ' + ('Tela cheia' if state[1] else 'Modo janela'),
@@ -798,6 +831,90 @@ class MainWindow(Adw.ApplicationWindow):
         elif time.monotonic() - self._launch_time > 10:
             self.set_status('Aguardando a sessão', 'A autenticação está em andamento. Você pode cancelar.')
         return GLib.SOURCE_CONTINUE
+
+    def close_memory_dialogs(self):
+        for name in ('_ram_dialog', '_ram_guide'):
+            dialog = getattr(self, name)
+            setattr(self, name, None)
+            if dialog:
+                dialog.close()
+
+    def open_memory_monitor(self, *_):
+        if self._ram_guide:
+            self._ram_guide.present()
+            return
+        active = self._connection_request and self._connection_request.get('memory')
+        body = ('No Windows desta sessão, pressione Win + R, cole o caminho abaixo e execute. '
+                'O coletor mede a RAM do Windows a cada 3 segundos e termina após a desconexão. '
+                'Ele não exige senha adicional nem altera a RAM reservada da VM.') if active else \
+               ('Ative o alerta em Tela e teclado → Memória da VM, escolha o limite e conecte. '
+                'Depois abra este menu para iniciar o coletor dentro do Windows.')
+        dialog = self._ram_guide = Adw.MessageDialog(transient_for=self, modal=True,
+            heading='RAM da VM', body=body)
+        dialog.add_response('close', 'Fechar')
+        dialog.set_close_response('close')
+        dialog.set_default_response('close')
+        if active:
+            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+            self._ram_guide_status = Gtk.Label(label=self.ram_status.get_subtitle(), wrap=True)
+            box.append(self._ram_guide_status)
+            field = Gtk.Entry(text=START_COMMAND, editable=False, hexpand=True)
+            field.update_property([Gtk.AccessibleProperty.LABEL], ['Caminho para iniciar o coletor no Windows'])
+            box.append(field)
+            copy_button = Gtk.Button(label='Copiar caminho')
+            def copy_command(*_):
+                self.get_clipboard().set(START_COMMAND)
+                copy_button.set_label('Caminho copiado')
+            copy_button.connect('clicked', copy_command)
+            box.append(copy_button)
+            dialog.set_extra_child(box)
+        def closed(*_):
+            if self._ram_guide is dialog:
+                self._ram_guide = None
+        dialog.connect('response', closed)
+        dialog.present()
+
+    def poll_memory(self):
+        monitor = self._connection_request and self._connection_request.get('memory')
+        if not monitor or time.monotonic() < self._ram_next_poll:
+            return
+        self._ram_next_poll = time.monotonic() + 3
+        sample = monitor.read()
+        text = (describe(sample) + f' · limite: {monitor.limit_bytes / GIB:g} GiB') if sample else \
+               'Sem leitura atual. Inicie o coletor em Mais opções → RAM da VM.'
+        self.ram_status.set_subtitle(text)
+        if self._ram_guide:
+            self._ram_guide_status.set_text(text)
+        if sample and monitor.warning_needed(sample) and not self._ram_dialog:
+            monitor.acknowledge()
+            self.show_memory_warning(monitor, sample)
+
+    def show_memory_warning(self, monitor, sample):
+        pid = self.proc.pid
+        dialog = self._ram_dialog = Adw.MessageDialog(transient_for=self, modal=True,
+            heading='A VM ultrapassou o limite de RAM',
+            body=f'{describe(sample)}. Limite de alerta: {monitor.limit_bytes / GIB:g} GiB. '
+                 'Você pode continuar ou parar a sessão. Parar desconecta o AJR e mantém a VM ligada.')
+        dialog.add_response('continue', 'Continuar')
+        dialog.add_response('stop', 'Parar sessão')
+        dialog.set_response_appearance('stop', Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response('continue')
+        dialog.set_close_response('continue')
+        def response(_dialog, result):
+            current = self._ram_dialog is dialog
+            if current:
+                self._ram_dialog = None
+            if not current or not self.proc or self.proc.pid != pid or \
+                    not self._connection_request or self._connection_request.get('memory') is not monitor:
+                return
+            monitor.acknowledge()
+            if result == 'stop':
+                self.cancel_connection()
+        dialog.connect('response', response)
+        # Ensure the warning is visible even while the RDP window is fullscreen.
+        self.control('minimize')
+        self.present()
+        dialog.present()
 
     def dispatch_local_shortcuts(self):
         window = self.x11.find_window(self.proc.pid)
