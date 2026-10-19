@@ -3,7 +3,7 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.10**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.11**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
 atalhos personalizáveis e atualização da AJR Bar na sessão atual.
 A instalação em um Zorin recém-instalado
@@ -115,6 +115,33 @@ desativada. Escolha uma combinação livre para alternar tela cheia em janela.
 Reconecte depois de alterar as opções de teclado.
 
 ## Conexões e pastas
+
+### Ligar e desligar uma máquina local
+
+Abra o botão de computador no cabeçalho ou **Mais opções → Máquinas deste computador**.
+O AJR consulta os gerenciadores instalados: Docker, Docker do usuário quando
+seu socket está disponível, Podman do usuário, KVM/libvirt (sistema e usuário)
+e VirtualBox. A busca inclui máquinas paradas e informa consultas sem permissão.
+Não procura arquivos no disco, instala gerenciadores nem controla servidores remotos.
+
+Selecione a máquina que hospeda o Windows e clique em **Usar nesta conexão**.
+O vínculo usa o identificador da máquina e é salvo por conexão. A descoberta
+não comprova que o sistema convidado é Windows nem associa automaticamente
+uma VM ao endereço RDP; confirme a máquina antes de vinculá-la.
+
+**Ligar Windows** inicia a máquina selecionada; aguarde o Windows iniciar e
+conecte normalmente. **Desligar Windows** pede confirmação e cancela a sessão
+RDP e sua reconexão automática. Para Docker/Podman, solicita parada do contêiner
+com até 120 segundos de espera. Para libvirt/VirtualBox, solicita desligamento
+ao convidado; ele pode levar algum tempo ou ignorar a solicitação.
+A lista mostra o estado consultado, não uma garantia de que o Windows terminou
+de iniciar ou desligar. Use **Buscar máquinas** para atualizar.
+
+Se necessário, **Autorizar consultas restritas** solicita permissão pelo diálogo
+do Linux. Ações sem permissão oferecem autorização separada; a senha de
+administrador não é capturada nem armazenada no AJR. Gerenciadores por usuário
+são consultados com a conta atual. Podman rootful e hosts remotos não são
+suportados por estes controles.
 
 Em **Conexão**, use **Nova**, preencha um nome, servidor, usuário e senha e
 clique em **Salvar**. Selecione uma conexão em **Conexões salvas** para recuperar

@@ -26,6 +26,7 @@ RESOLUTIONS = (
     ('360p', '360p · 640 × 360', (640, 360)),
 )
 DEFAULT = dict(server='', user='', shares=[], quality=0, resolution='monitor',
+    vm_backend='', vm_id='', vm_name='',
     ram_alert=False, ram_limit_gib=4.0,
     monitor='0', monitor_connector='', fullscreen=False, capture_keyboard=True,
     clipboard=True, remember=False, keyboard_mode='fullscreen',
@@ -57,6 +58,10 @@ def normalize_settings(data):
         cfg.update({k: v for k, v in data.items() if k in PROFILE_KEYS})
     for key in ('server', 'user', 'monitor', 'monitor_connector'):
         cfg[key] = str(cfg[key]) if isinstance(cfg[key], (str, int)) else DEFAULT[key]
+    from vm_control import BACKENDS, valid_identifier
+    if not isinstance(cfg['vm_backend'], str) or cfg['vm_backend'] not in BACKENDS or not valid_identifier(cfg['vm_id']) \
+            or not valid_identifier(cfg['vm_name']):
+        cfg.update(vm_backend='', vm_id='', vm_name='')
     for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember',
                 'remote_alt_tab', 'remote_super', 'remote_alt_f4', 'auto_reconnect', 'ram_alert'):
         cfg[key] = cfg[key] if isinstance(cfg[key], bool) else DEFAULT[key]

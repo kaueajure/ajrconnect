@@ -16,6 +16,8 @@
 !/implementacao/version.py
 !/implementacao/reconnect.py
 !/implementacao/memory_monitor.py
+!/implementacao/vm_control.py
+!/implementacao/vm_dialog.py
 !/implementacao/updates.py
 !/implementacao/update_dialog.py
 !/implementacao/DESIGN.md
@@ -78,6 +80,7 @@
 !/implementacao/tests/test_reconnect.py
 !/implementacao/tests/test_display.py
 !/implementacao/tests/test_memory_monitor.py
+!/implementacao/tests/test_vm_control.py
 !/implementacao/tests/test_integration_update.py
 !/implementacao/tests/test_keyboard_portal.py
 !/implementacao/tests/check_portal_session.py

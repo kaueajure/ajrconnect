@@ -160,7 +160,7 @@ def install_files():
         atomic_json(UPDATE_JOURNAL, dict(backup=str(BACKUP)))
     APP.mkdir(parents=True, exist_ok=True)
     for name in ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_portal.py', 'reconnect.py', 'updates.py',
-                 'update_dialog.py', 'version.py', 'core.py', 'memory_monitor.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
+                 'update_dialog.py', 'version.py', 'core.py', 'memory_monitor.py', 'vm_control.py', 'vm_dialog.py', 'integration.py', 'x11.py', 'ajr-control', 'enable-extension.py'):
         shutil.copy2(BASE / name, APP / name)
     shutil.copytree(BASE / 'assets', APP / 'assets', dirs_exist_ok=True)
     # Replacing the inode permits an existing RDP process to finish normally.

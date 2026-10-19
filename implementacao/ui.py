@@ -113,8 +113,12 @@ class DesktopView:
         self.theme_button = Gtk.Button(tooltip_text='Alternar tema claro e escuro')
         self.theme_button.connect('clicked', self.toggle_theme)
         header.pack_end(self.theme_button)
+        machines = Gtk.Button(icon_name='computer-symbolic', tooltip_text='Máquinas deste computador: ligar e desligar Windows')
+        machines.connect('clicked', w.open_machines)
+        header.pack_end(machines)
         menu = Gio.Menu()
         for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
+                                       ('machines', 'Máquinas deste computador', w.open_machines),
                                        ('memory', 'RAM da VM', w.open_memory_monitor),
                                        ('updates', 'Atualizações', w.open_updates)]:
             action = Gio.SimpleAction.new('ui-' + name, None)

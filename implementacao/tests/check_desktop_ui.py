@@ -227,6 +227,32 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.proc = None
     win.finish_connection()
     win._poll = GLib.timeout_add(250, win.poll_session)
+    import vm_control
+    machines = [vm_control.Machine('docker', 'demo-windows-id', 'Windows SQL', 'exited'),
+                vm_control.Machine('virtualbox', 'demo-lab-id', 'Laboratório', 'running')]
+    with patch.object(vm_control, 'discover', return_value=(machines, [], [])):
+        win.open_machines()
+        drain(.4)
+        machine_window = win._machine_window
+        capture(machine_window, 'ajr-connect-machines-unselected')
+        machine_window.selection.set_selected(0)
+        machine_window.bind()
+        capture(machine_window, 'ajr-connect-machines-stopped')
+        win.ui.toggle_theme()
+        capture(machine_window, 'ajr-connect-machines-light')
+        win.ui.toggle_theme()
+        machine_window.selection.set_selected(1)
+        machine_window.bind()
+        capture(machine_window, 'ajr-connect-machines-running')
+        machine_window.request_power('stop')
+        drain()
+        confirmation = next(window for window in Gtk.Window.get_toplevels()
+                            if isinstance(window, gui.Adw.MessageDialog) and window.get_visible()
+                            and window.get_heading() == 'Desligar esta máquina?')
+        capture(confirmation, 'ajr-connect-machines-stop-confirmation')
+        confirmation.response('cancel')
+        machine_window.close()
+        drain()
     win.close()
     drain()
 print('PASS: V2 light/dark, dialogs, folders, reconnecting, errors, session controls and '

@@ -13,7 +13,7 @@ BASE = Path(__file__).resolve().parent
 FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_portal.py', 'assets/style.css', 'assets/ajr-connect.svg', 'assets/workspace.svg',
          'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
          'dependencies.py',
-         'version.py', 'reconnect.py', 'updates.py', 'update_dialog.py', 'memory_monitor.py',
+         'version.py', 'reconnect.py', 'updates.py', 'update_dialog.py', 'memory_monitor.py', 'vm_control.py', 'vm_dialog.py',
          'ajr-connect.desktop.in',
          'enable-extension.py', 'extensao/extension.js', 'extensao/integration.js', 'extensao/stylesheet.css',
          'extensao/metadata.json', 'native/ajr-freerdp')

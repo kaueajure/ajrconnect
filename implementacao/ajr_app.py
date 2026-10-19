@@ -24,6 +24,7 @@ from keyboard import native_rules, validate_rules, x11_modifiers, desktop_bindin
 from keyboard_portal import KeyboardPortal
 from reconnect import RetryPlan
 from memory_monitor import MemoryMonitor, START_COMMAND, GIB, describe
+from vm_dialog import MachineWindow
 import updates
 from update_dialog import UpdateWindow
 from ui import DesktopView
@@ -84,6 +85,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._ram_dialog = self._ram_guide = None
         self._ram_next_poll = 0
         self._updating = self._update_ready = False
+        self._machine_window = None
+        self._machine_action = False
         self._available_release, self._update_window = None, None
         self.set_default_size(1120, 820)
         self.set_size_request(620, 480)
@@ -526,7 +529,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._status_source = GLib.timeout_add(250, start_check)
 
     def do_connect(self):
-        if self._updating or self._update_ready:
+        if self._updating or self._update_ready or self._machine_action:
             return
         if self.connection_busy():
             self.cancel_connection()
@@ -999,9 +1002,17 @@ class MainWindow(Adw.ApplicationWindow):
         path = Path(self.session['log']) if self.session else DATA_DIR
         Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
 
+    def open_machines(self, *_):
+        if self._updating or self._update_ready:
+            self.show_error('Aguarde a atualização terminar para controlar uma máquina.')
+            return
+        if not self._machine_window:
+            self._machine_window = MachineWindow(self)
+        self._machine_window.present()
+
     def close_requested(self, *_):
         # Keep the session and its controller available; closing the GUI hides it.
-        if self.connection_busy() or self._updating:
+        if self.connection_busy() or self._updating or self._machine_action:
             self.set_visible(False)
             return True
         self.persist()

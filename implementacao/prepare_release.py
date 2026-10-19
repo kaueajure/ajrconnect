@@ -28,41 +28,46 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — aparência, resolução e RAM da VM
+    return f'''# AJR Connect {TAG.removeprefix('v')} — descobrir, ligar e desligar máquinas locais
 
 ## Mudanças
 
-- Os três modos de qualidade solicitam cores em 32 bits, temas, papel de parede
-  e suavização de fontes. O preset de rede deixou de alterar essas preferências.
-- Resolução do Windows salva por conexão: automática pelo monitor, 4K, QHD,
-  1080p, 720p, 480p e 360p, com ajuste da imagem à janela local.
-- Monitoramento opcional da RAM física usada dentro do Windows, com limite por
-  conexão e aviso para continuar ou desconectar sem desligar a VM.
-- Coletor iniciado pelo usuário em **Mais opções → RAM da VM**, compartilhamento
-  temporário por sessão e descarte de leituras inválidas ou antigas.
-- Perfis, senhas no chaveiro, pastas compartilhadas e reconexão preservados.
+- Busca de máquinas registradas no Docker, Docker do usuário quando disponível,
+  Podman do usuário, KVM/libvirt do sistema e usuário e VirtualBox.
+- Lista inclui máquinas paradas, com nome, gerenciador e estado consultado.
+- Seleção explícita da máquina que hospeda o Windows, salva por conexão usando
+  o identificador do contêiner ou UUID da VM.
+- Botões **Ligar Windows** e **Desligar Windows** no botão de computador do
+  cabeçalho ou em **Mais opções → Máquinas deste computador**.
+- Desligamento com confirmação e cancelamento da reconexão RDP. Contêineres
+  recebem stop com até 120 segundos de espera; VMs recebem shutdown/ACPI.
+- Consultas restritas e ações sem permissão oferecem autorização pelo Linux,
+  sem guardar a senha de administrador no AJR.
 
-A mudança de azul para roxo relatada ainda precisa de reprodução e comparação
-visual. Esta versão não é apresentada como correção comprovada desse sintoma.
+A busca é local e não instala gerenciadores. Podman rootful e hosts remotos
+não são suportados por esses controles. O AJR não deduz o sistema convidado
+nem vincula automaticamente uma VM ao servidor RDP: confirme a seleção.
 
 ## Atualizar
 
 Desconecte o Windows antes de instalar. Execute no terminal Linux, sem sudo:
 
 {download_commands(repository)}
-Também é possível usar **Mais opções → Atualizações**, ativar **Incluir versões
-de teste**, verificar, instalar e reiniciar o aplicativo.
+Também é possível atualizar em **Mais opções → Atualizações** com
+**Incluir versões de teste** ativado. Reabra o aplicativo depois de instalar.
 
 ## Validação
 
-- 86 testes automatizados aprovados, cobrindo resolução, parâmetros visuais reais do FreeRDP,
-  monitoramento de RAM, perfis, reconexão, instalação e atualização.
-- Verificações isoladas da interface, teclado e integração GNOME.
+- 94 testes automatizados aprovados, incluindo descoberta, isolamento dos
+  comandos locais, permissões, vínculos por perfil e controles GTK.
+- Interface conferida em temas claro/escuro e tamanhos de janela diferentes.
+- Descoberta real somente de leitura no computador de desenvolvimento.
 - Pacotes Linux e fontes com SHA256 e verificação de dados privados.
 
-Os testes de publicação não abrem a VM nem consultam o chaveiro real.
-A versão é de teste, para Linux x86_64 com FreeRDP/WinPR 2.11.5.
-A validação em uma instalação limpa continua pendente.
+Nenhuma VM foi ligada ou desligada nos testes. As ações de energia foram
+validadas com simulações, sem consultar o chaveiro real. A versão é de teste,
+Linux x86_64 com FreeRDP/WinPR 2.11.5. A validação em instalação limpa e o
+ciclo real de energia em cada gerenciador continuam pendentes.
 '''
 
 

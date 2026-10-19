@@ -168,3 +168,15 @@ maiores que 4 KiB, links, campos inválidos e amostras sem atualização por 15s
 são recusados. O diretório é preservado em tentativas de reconexão e removido
 ao encerrar a conexão. O coletor usa a política Bypass somente em seu processo,
 sem mudar a política de execução do Windows.
+
+`vm_control.py` consulta apenas gerenciadores locais conhecidos, com endpoints
+fixos para Docker e libvirt e o modo local do Podman. Docker/Podman usam IDs
+de contêiner, libvirt usa UUIDs e VirtualBox usa UUIDs. O usuário vincula a
+máquina explicitamente; `vm_backend`, `vm_id` e `vm_name` pertencem ao perfil.
+Não há inferência de identidade pelo nome Windows ou pelo endereço RDP.
+`vm_dialog.py` mantém busca e ações fora do thread GTK. A busca inicial não
+eleva privilégios por pkexec; consultas restritas e ações privilegiadas pedem
+autorização explícita e não armazenam senhas. Não executa shell ou comandos
+arbitrários da configuração. Somente start/stop são expostos: contêineres
+aguardam até 120s e VMs recebem shutdown/ACPI, sem destroy/poweroff.
+Antes de parar, a sessão RDP é cancelada para impedir a reconexão automática.
