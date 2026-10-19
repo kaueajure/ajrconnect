@@ -8,7 +8,7 @@ Cliente RDP para Linux, sem bloqueio por distribuição ou tipo de sessão.
 
 ## Instalar a versão de teste
 
-Versão atual: **6.0.0-beta.10**.
+Versão atual: **6.0.0-beta.11**.
 
 No terminal da sessão gráfica, execute:
 
@@ -27,6 +27,10 @@ na sessão atual. A barra agora é integrada ao cliente RDP e dispensa novo logi
 inclusive ao migrar a versão antiga. Para os atalhos locais, autorize o teclado
 quando o sistema solicitar e marque a opção de lembrar essa autorização.
 
+Inclui busca de máquinas locais e botões para ligar/desligar Windows em Docker,
+Podman, KVM/libvirt e VirtualBox, com vínculo explícito por conexão em
+**Máquinas deste computador**, no cabeçalho.
+
 Esta versão inclui a interface V2 com superfícies neutras e accent violeta, temas claro e escuro,
 conexões salvas com busca, seleção de pastas pelo botão,
 atalho de tela cheia personalizável e prioridade configurável de Alt+Tab,
@@ -37,7 +41,7 @@ Em versões com atualização integrada, abra **Mais opções → Atualizações
 ative **Incluir versões de teste**, verifique e instale a nova versão.
 
 [Código-fonte e instruções](https://github.com/kaueajure/ajrconnect) ·
-[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.10)
+[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.11)
 
 Apache 2.0. A validação em um Zorin recém-instalado ainda está pendente.
 
