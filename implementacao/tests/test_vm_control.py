@@ -40,14 +40,45 @@ class MachineTests(unittest.TestCase):
             self.assertEqual(vm.discover_backend('virtualbox')[0].state, 'running')
 
     def test_discovery_is_read_only_and_denied_access_is_not_empty_success(self):
-        with patch.object(vm.shutil, 'which', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
-                patch.object(vm.Path, 'exists', return_value=False), \
+        with patch.object(vm, 'find_tool', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'ok', Path('/var/run/docker.sock'))), \
                 patch.object(vm, 'run', side_effect=vm.VMError('permission denied', permission=True)) as run:
             machines, notices, restricted = vm.discover()
         self.assertFalse(machines)
         self.assertEqual(restricted, ['docker'])
-        self.assertIn('autorize', notices[0])
+        self.assertTrue(any('autorize' in notice for notice in notices))
         self.assertFalse(run.call_args.kwargs['elevated'])
+
+    def test_discovery_explains_missing_daemon_and_socket_acl(self):
+        with patch.object(vm, 'find_tool', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'missing', Path('/var/run/docker.sock'))), \
+                patch.object(vm, 'run', side_effect=vm.VMError(
+                    'Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?')):
+            machines, notices, restricted = vm.discover()
+        self.assertFalse(machines)
+        self.assertFalse(restricted)
+        self.assertTrue(any('serviço local' in notice or 'daemon' in notice.casefold() for notice in notices))
+        with patch.object(vm, 'find_tool', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'denied', Path('/var/run/docker.sock'))):
+            machines, notices, restricted = vm.discover()
+        self.assertEqual(restricted, ['docker'])
+        self.assertTrue(any('grupo docker' in notice or 'usermod -aG docker' in notice for notice in notices))
+
+    def test_docker_format_fallback_and_desktop_socket_order(self):
+        tabular = 'abc123\tWindows\tUp 2 minutes\n'
+        with patch.object(vm, 'run', side_effect=[
+                vm.VMError('template parsing error'), tabular]):
+            machines = vm.discover_docker('docker')
+        self.assertEqual([(m.name, m.state) for m in machines], [('Windows', 'running')])
+        with patch.object(vm, 'is_socket', side_effect=lambda path: str(path).endswith('desktop/docker.sock')), \
+                patch.object(vm.os, 'access', return_value=True), \
+                patch.object(vm.os, 'getuid', return_value=1000):
+            path, status = vm.resolve_docker_socket('docker')
+        self.assertEqual(status, 'ok')
+        self.assertTrue(str(path).endswith('.docker/desktop/docker.sock'))
 
     def test_power_commands_are_scoped_and_never_force_kill_or_destroy(self):
         for backend in vm.BACKENDS:
@@ -68,7 +99,9 @@ class MachineTests(unittest.TestCase):
 
     def test_local_endpoint_and_no_shell_or_automatic_escalation(self):
         result = subprocess.CompletedProcess([], 0, 'ok', '')
-        with patch.object(vm.shutil, 'which', side_effect=lambda name: '/usr/bin/'+name), \
+        with patch.object(vm, 'find_tool', side_effect=lambda name: '/usr/bin/'+name), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'ok', Path('/var/run/docker.sock'))), \
                 patch.object(vm.subprocess, 'run', return_value=result) as run, \
                 patch.dict(os.environ, DOCKER_HOST='ssh://remote', DOCKER_CONTEXT='remote'):
             vm.power(vm.Machine('docker', 'abc', 'Windows'), 'start')
@@ -84,16 +117,22 @@ class MachineTests(unittest.TestCase):
             vm.power(vm.Machine('docker', 'abc', 'Windows'), 'delete')
 
     def test_permission_cancel_timeout_and_invalid_output(self):
-        with patch.object(vm.shutil, 'which', return_value='/usr/bin/docker'), \
+        with patch.object(vm, 'find_tool', return_value='/usr/bin/docker'), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'ok', Path('/var/run/docker.sock'))), \
                 patch.object(vm.subprocess, 'run', return_value=subprocess.CompletedProcess([], 1, '', 'permission denied')):
             with self.assertRaises(vm.VMError) as denied:
                 vm.run('docker', ['ps'])
             self.assertTrue(denied.exception.permission)
-        with patch.object(vm.shutil, 'which', return_value='/usr/bin/docker'), \
+        with patch.object(vm, 'find_tool', return_value='/usr/bin/docker'), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'ok', Path('/var/run/docker.sock'))), \
                 patch.object(vm.subprocess, 'run', side_effect=subprocess.TimeoutExpired('docker', 15)):
             with self.assertRaisesRegex(vm.VMError, 'tempo'):
                 vm.run('docker', ['ps'])
-        with patch.object(vm.shutil, 'which', return_value='/usr/bin/docker'), \
+        with patch.object(vm, 'find_tool', return_value='/usr/bin/docker'), \
+                patch.object(vm, 'docker_host_args',
+                             return_value=(('--host', 'unix:///var/run/docker.sock'), 'ok', Path('/var/run/docker.sock'))), \
                 patch.object(vm.subprocess, 'run', return_value=subprocess.CompletedProcess([], 126, '', 'cancelled')):
             with self.assertRaisesRegex(vm.VMError, 'cancelada'):
                 vm.run('docker', ['ps'], elevated=True)

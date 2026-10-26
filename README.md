@@ -3,10 +3,11 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.12**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.13**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
-atalhos personalizáveis, atualização da AJR Bar na sessão atual e correção
-do cast roxo via `/gfx:rfx` com `/gdi:sw`.
+atalhos personalizáveis, atualização da AJR Bar na sessão atual, correção
+do cast roxo via `/gfx:rfx` com `/gdi:sw` e detecção local de Docker/VM
+mais robusta (sockets, permissões e autorização).
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
@@ -120,10 +121,13 @@ Reconecte depois de alterar as opções de teclado.
 ### Ligar e desligar uma máquina local
 
 Abra o botão de computador no cabeçalho ou **Mais opções → Máquinas deste computador**.
-O AJR consulta os gerenciadores instalados: Docker, Docker do usuário quando
+O AJR consulta **somente este computador**: Docker, Docker do usuário quando
 seu socket está disponível, Podman do usuário, KVM/libvirt (sistema e usuário)
 e VirtualBox. A busca inclui máquinas paradas e informa consultas sem permissão.
-Não procura arquivos no disco, instala gerenciadores nem controla servidores remotos.
+Não procura arquivos no disco, não instala gerenciadores e **não controla Docker/VMs
+de outro PC** — quem só conecta por RDP a uma VM hospedada no seu servidor não
+verá essa máquina na lista. Ligar/desligar precisa ser feito no host onde a VM
+roda (ou com o usuário no grupo `docker`/`libvirt` e o daemon ativo).
 
 Selecione a máquina que hospeda o Windows e clique em **Usar nesta conexão**.
 O vínculo usa o identificador da máquina e é salvo por conexão. A descoberta

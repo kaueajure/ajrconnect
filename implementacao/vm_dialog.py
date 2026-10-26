@@ -24,8 +24,10 @@ class MachineWindow(Adw.Window):
         scroll.set_child(body)
         shell.set_content(scroll)
         self.set_content(shell)
-        description = Gtk.Label(label='Encontre a VM ou o contêiner que hospeda o Windows e vincule à conexão atual. '
-            'A busca consulta os gerenciadores locais, incluindo máquinas paradas.', wrap=True, xalign=0)
+        description = Gtk.Label(label='Encontre a VM ou o contêiner que hospeda o Windows neste computador '
+            'e vincule à conexão atual. A busca só consulta gerenciadores locais (Docker, Podman, '
+            'libvirt, VirtualBox), incluindo máquinas paradas — não encontra VMs hospedadas em outro PC.',
+            wrap=True, xalign=0)
         body.append(description)
         self.selection = Adw.ComboRow(title='Máquina encontrada',
                                       model=Gtk.StringList.new([]), use_subtitle=True)
@@ -126,14 +128,34 @@ class MachineWindow(Adw.Window):
             index = next((i for i, machine in enumerate(self.machines) if self.is_bound(machine)),
                          Gtk.INVALID_LIST_POSITION)
             self.selection.set_selected(index)
-            text = f'{len(self.machines)} máquina(s) encontrada(s). Selecione a que hospeda o Windows.' if self.machines else \
-                   'Nenhuma máquina encontrada nas consultas concluídas.'
+            text = f'{len(self.machines)} máquina(s) encontrada(s) neste computador. Selecione a que hospeda o Windows.' if self.machines else \
+                   'Nenhuma máquina encontrada neste computador.'
+            if self.restricted:
+                text += '\n\nHá gerenciadores sem permissão. Confirme o diálogo de autorização do Linux ' \
+                        'ou use “Autorizar consultas restritas”. Também resolve: sudo usermod -aG docker $USER ' \
+                        'e reiniciar a sessão.'
             self.message.set_text('\n\n'.join(part for part in [result_message, text, *notices] if part))
+            if self.restricted and not self.authorized.intersection(self.restricted):
+                self.prompt_authorize()
         self.work(lambda: vm_control.discover(self.authorized), complete, 'Buscando máquinas neste computador…')
+
+    def prompt_authorize(self):
+        dialog = Adw.MessageDialog(
+            transient_for=self, modal=True,
+            heading='Autorizar consulta ao Docker/VM?',
+            body='O AJR encontrou um gerenciador neste computador, mas sem permissão para listar as máquinas. '
+                 'O Linux pode pedir sua senha agora. A senha não é armazenada no AJR. '
+                 'Como alternativa permanente: sudo usermod -aG docker $USER e faça logout/login.')
+        dialog.add_response('cancel', 'Agora não')
+        dialog.add_response('authorize', 'Autorizar')
+        dialog.set_default_response('authorize')
+        dialog.set_close_response('cancel')
+        dialog.connect('response', lambda _dialog, response: self.authorize_scan() if response == 'authorize' else None)
+        dialog.present()
 
     def authorize_scan(self, *_):
         self.authorized.update(self.restricted)
-        self.scan()
+        self.scan('Consulta elevada solicitada. Confirme no diálogo do sistema, se aparecer.')
 
     def bind(self, *_):
         machine = self.selected_machine()
