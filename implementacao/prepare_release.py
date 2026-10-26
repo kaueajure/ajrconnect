@@ -28,19 +28,19 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — cores RDP e detecção local de Docker/VM
+    return f'''# AJR Connect {TAG.removeprefix('v')} — autorização automática do Docker
 
 ## Mudanças
 
-- Correção do cast roxo em UIs escuras do Windows: o cliente usa `/gfx:rfx`
-  com `/gdi:sw` (sem `/gdi:hw`).
-- Detecção local de Docker/VM mais robusta: mais caminhos de socket
-  (incluindo Docker Desktop), mensagens claras de permissão/daemon e diálogo
-  para autorizar consultas restritas.
-- A busca de máquinas continua **somente neste computador** (Docker, Podman,
-  libvirt, VirtualBox). Não controla VMs hospedadas em outro PC via RDP.
-- Orientação para quem tem Docker sem permissão: autorizar no diálogo ou
-  `sudo usermod -aG docker $USER` e reiniciar a sessão.
+- A busca de máquinas pede autorização ao Linux sozinha (pkexec) quando o
+  socket do Docker está restrito — sem passo manual de `usermod`.
+- Depois de listar contêineres, o AJR configura o grupo `docker` de forma
+  permanente (também via pkexec). Após reiniciar a sessão do Linux, a senha
+  deixa de ser pedida.
+- Se a autorização for cancelada, o botão “Tentar autorização novamente”
+  reaparece.
+- A busca continua **somente neste computador** (Docker, Podman, libvirt,
+  VirtualBox).
 
 ## Atualizar
 
@@ -52,14 +52,10 @@ Também é possível atualizar em **Mais opções → Atualizações** com
 
 ## Validação
 
-- Testes de display/cores e de descoberta de máquinas aprovados na árvore atual.
-- Pacotes Linux e fontes com SHA256 e verificação de dados privados.
-- Comparação visual: print Windows vs cliente Linux; `/gfx:rfx` removeu o cast
-  roxo medido no caminho só com software GDI.
+- Testes de descoberta e de `ensure_docker_group` na árvore atual.
+- Pacotes Linux e fontes com SHA256.
 
-A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5. A validação em
-instalação limpa e o ciclo real de energia em cada gerenciador continuam
-pendentes.
+A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5.
 '''
 
 

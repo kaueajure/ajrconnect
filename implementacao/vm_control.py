@@ -1,8 +1,10 @@
 """Discover registered local machines; execute only explicit power actions."""
 from dataclasses import dataclass
+import grp
 import json
 import os
 from pathlib import Path
+import pwd
 import re
 import shutil
 import stat
@@ -277,9 +279,7 @@ def discover(elevated=()):
             available = True
             if status == 'denied' and backend in ELEVATABLE and backend not in elevated:
                 restricted.append(backend)
-                notices.append(
-                    f'{label}: sem permissão em {path}. Use “Autorizar consultas restritas” '
-                    'ou entre no grupo docker (sudo usermod -aG docker $USER) e reinicie a sessão.')
+                notices.append(f'{label}: sem permissão em {path}. O AJR pedirá autorização do sistema.')
                 continue
             if status == 'missing' and backend not in elevated:
                 # Still attempt once — some installs expose the CLI before the sock path settles.
@@ -295,9 +295,7 @@ def discover(elevated=()):
         except (VMError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
             if isinstance(exc, VMError) and exc.permission and backend in ELEVATABLE:
                 restricted.append(backend)
-                notices.append(
-                    f'{label}: autorize a consulta para listar as máquinas deste computador '
-                    '(ou: sudo usermod -aG docker $USER e novo login).')
+                notices.append(f'{label}: sem permissão. O AJR pedirá autorização do sistema.')
             elif isinstance(exc, VMError) and daemon_unavailable(str(exc)):
                 notices.append(
                     f'{label}: Docker/VM parece instalado, mas o serviço local não respondeu '
@@ -313,6 +311,63 @@ def discover(elevated=()):
             'Nenhuma máquina local acessível. Ligar/desligar só funciona no computador '
             'que hospeda o Docker/VM.')
     return sorted(machines, key=lambda machine: (machine.name.casefold(), machine.backend)), notices, restricted
+
+
+def docker_group_active():
+    try:
+        return grp.getgrnam('docker').gr_gid in os.getgroups()
+    except KeyError:
+        return False
+
+
+def current_username():
+    try:
+        return pwd.getpwuid(os.getuid()).pw_name
+    except KeyError:
+        return os.environ.get('USER') or os.environ.get('LOGNAME') or ''
+
+
+def docker_group_configured():
+    user = current_username()
+    try:
+        group = grp.getgrnam('docker')
+    except KeyError:
+        return False
+    if docker_group_active() or user in group.gr_mem:
+        return True
+    try:
+        return pwd.getpwnam(user).pw_gid == group.gr_gid
+    except KeyError:
+        return False
+
+
+def ensure_docker_group():
+    """Grant permanent docker socket access via polkit. Returns True if membership changed."""
+    if docker_group_configured():
+        return False
+    user = current_username()
+    if not user or user.startswith('-'):
+        raise VMError('Não foi possível identificar o usuário atual para liberar o Docker.')
+    usermod = find_tool('usermod')
+    pkexec = find_tool('pkexec')
+    if not usermod or not pkexec:
+        raise VMError('Não foi possível configurar o acesso permanente ao Docker neste sistema.')
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(('DOCKER_', 'CONTAINER_'))}
+    env.update(LC_ALL='C', LANG='C')
+    try:
+        result = subprocess.run([pkexec, usermod, '-aG', 'docker', user],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=120)
+    except subprocess.TimeoutExpired as exc:
+        raise VMError('A configuração do acesso ao Docker excedeu o tempo limite.') from exc
+    except OSError as exc:
+        raise VMError('Não foi possível configurar o acesso ao Docker: ' + str(exc)) from exc
+    if result.returncode in (126, 127):
+        raise VMError('Autorização cancelada ou não concedida pelo sistema.')
+    if result.returncode:
+        detail = (result.stderr or result.stdout or 'Falha sem detalhes.').strip()[:1200]
+        raise VMError(detail, permission=permission_denied(detail))
+    return True
 
 
 def power(machine, action, *, elevated=False):

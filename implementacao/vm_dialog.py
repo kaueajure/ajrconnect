@@ -1,4 +1,4 @@
-"""Local machine selection and power controls, with explicit authorization."""
+"""Local machine selection and power controls, with automatic system authorization."""
 import threading
 import gi
 gi.require_version('Gtk', '4.0')
@@ -13,6 +13,7 @@ class MachineWindow(Adw.Window):
                          default_width=560, default_height=520)
         self.owner = owner
         self.machines, self.restricted, self.authorized = [], [], set()
+        self.elevate_attempted = set()
         self.busy = self.closed = False
         self.add_css_class('ajr-dialog')
         self.connect('close-request', self.close_requested)
@@ -26,7 +27,8 @@ class MachineWindow(Adw.Window):
         self.set_content(shell)
         description = Gtk.Label(label='Encontre a VM ou o contêiner que hospeda o Windows neste computador '
             'e vincule à conexão atual. A busca só consulta gerenciadores locais (Docker, Podman, '
-            'libvirt, VirtualBox), incluindo máquinas paradas — não encontra VMs hospedadas em outro PC.',
+            'libvirt, VirtualBox), incluindo máquinas paradas — não encontra VMs hospedadas em outro PC. '
+            'Se faltar permissão, o próprio AJR pede autorização ao Linux.',
             wrap=True, xalign=0)
         body.append(description)
         self.selection = Adw.ComboRow(title='Máquina encontrada',
@@ -57,7 +59,7 @@ class MachineWindow(Adw.Window):
         self.refresh = Gtk.Button(label='Buscar máquinas')
         self.refresh.connect('clicked', lambda *_: self.scan())
         body.append(self.refresh)
-        self.authorize = Gtk.Button(label='Autorizar consultas restritas')
+        self.authorize = Gtk.Button(label='Tentar autorização novamente')
         self.authorize.connect('clicked', self.authorize_scan)
         body.append(self.authorize)
         self.unlink = Gtk.Button(label='Remover vínculo desta conexão')
@@ -82,7 +84,8 @@ class MachineWindow(Adw.Window):
         self.start.set_sensitive(not self.busy and bound and machine.state in ('exited', 'created', 'stopped', 'shut off'))
         self.stop.set_sensitive(not self.busy and bound and machine.state == 'running')
         self.refresh.set_sensitive(not self.busy)
-        self.authorize.set_visible(bool(self.restricted))
+        failed = set(self.restricted) & self.elevate_attempted
+        self.authorize.set_visible(bool(failed) and not self.machines)
         self.authorize.set_sensitive(not self.busy)
         self.unlink.set_sensitive(not self.busy and bool(self.owner.cfg['vm_id']))
         self.binding.set_text('Vinculada: ' + self.owner.cfg['vm_name'] if self.owner.cfg['vm_id'] else
@@ -128,34 +131,46 @@ class MachineWindow(Adw.Window):
             index = next((i for i, machine in enumerate(self.machines) if self.is_bound(machine)),
                          Gtk.INVALID_LIST_POSITION)
             self.selection.set_selected(index)
+            pending = [backend for backend in self.restricted if backend not in self.elevate_attempted]
+            if pending:
+                self.elevate_attempted.update(pending)
+                self.authorized.update(pending)
+                self.scan('O Linux pedirá sua senha para o AJR acessar o Docker/VM. A senha não é salva.')
+                return
             text = f'{len(self.machines)} máquina(s) encontrada(s) neste computador. Selecione a que hospeda o Windows.' if self.machines else \
                    'Nenhuma máquina encontrada neste computador.'
-            if self.restricted:
-                text += '\n\nHá gerenciadores sem permissão. Confirme o diálogo de autorização do Linux ' \
-                        'ou use “Autorizar consultas restritas”. Também resolve: sudo usermod -aG docker $USER ' \
-                        'e reiniciar a sessão.'
+            if self.restricted and not self.machines:
+                text += '\n\nA autorização foi cancelada ou negada. Use “Tentar autorização novamente”.'
             self.message.set_text('\n\n'.join(part for part in [result_message, text, *notices] if part))
-            if self.restricted and not self.authorized.intersection(self.restricted):
-                self.prompt_authorize()
+            if self.machines and any(machine.backend.startswith('docker') for machine in self.machines):
+                self.finish_docker_access()
         self.work(lambda: vm_control.discover(self.authorized), complete, 'Buscando máquinas neste computador…')
 
-    def prompt_authorize(self):
-        dialog = Adw.MessageDialog(
-            transient_for=self, modal=True,
-            heading='Autorizar consulta ao Docker/VM?',
-            body='O AJR encontrou um gerenciador neste computador, mas sem permissão para listar as máquinas. '
-                 'O Linux pode pedir sua senha agora. A senha não é armazenada no AJR. '
-                 'Como alternativa permanente: sudo usermod -aG docker $USER e faça logout/login.')
-        dialog.add_response('cancel', 'Agora não')
-        dialog.add_response('authorize', 'Autorizar')
-        dialog.set_default_response('authorize')
-        dialog.set_close_response('cancel')
-        dialog.connect('response', lambda _dialog, response: self.authorize_scan() if response == 'authorize' else None)
-        dialog.present()
+    def finish_docker_access(self):
+        if getattr(self, '_docker_access_done', False) or vm_control.docker_group_configured():
+            return
+        self._docker_access_done = True
+
+        def complete(changed, error):
+            if self.closed:
+                return
+            if error:
+                self._docker_access_done = False
+                return
+            if changed:
+                current = self.message.get_text()
+                note = 'Acesso permanente ao Docker configurado. Após reiniciar a sessão do Linux, ' \
+                       'o AJR não precisará pedir senha de novo.'
+                self.message.set_text((current + '\n\n' + note).strip())
+
+        self.work(vm_control.ensure_docker_group, complete,
+                  'Configurando acesso permanente ao Docker…')
 
     def authorize_scan(self, *_):
+        self.elevate_attempted.clear()
         self.authorized.update(self.restricted)
-        self.scan('Consulta elevada solicitada. Confirme no diálogo do sistema, se aparecer.')
+        self.elevate_attempted.update(self.restricted)
+        self.scan('O Linux pedirá sua senha para o AJR acessar o Docker/VM. A senha não é salva.')
 
     def bind(self, *_):
         machine = self.selected_machine()
@@ -195,32 +210,28 @@ class MachineWindow(Adw.Window):
                        self.execute(machine, action) if response == 'stop' else None)
         dialog.present()
 
-    def execute(self, machine, action, *, elevated=False):
+    def execute(self, machine, action, *, elevated=None):
         if self.busy or self.closed or not self.is_bound(machine) or self.owner._updating:
             return
+        if elevated is None:
+            elevated = machine.backend in self.authorized
         if action == 'stop' and self.owner.connection_busy():
             self.owner.cancel_connection()
         self.owner._machine_action = True
+
         def complete(_result, error):
             self.owner._machine_action = False
             if isinstance(error, vm_control.VMError) and error.permission \
                     and machine.backend in vm_control.ELEVATABLE and not elevated:
-                self.message.set_text('A ação requer autorização do administrador.')
-                dialog = Adw.MessageDialog(transient_for=self, modal=True,
-                    heading='Autorizar controle da máquina?',
-                    body='O Linux solicitará permissão de administrador para esta ação. A senha não será armazenada no AJR.')
-                dialog.add_response('cancel', 'Cancelar')
-                dialog.add_response('authorize', 'Autorizar')
-                dialog.set_default_response('cancel')
-                dialog.set_close_response('cancel')
-                dialog.connect('response', lambda _dialog, response:
-                    self.execute(machine, action, elevated=True) if response == 'authorize' else None)
-                dialog.present()
+                self.authorized.add(machine.backend)
+                self.message.set_text('O Linux pedirá sua senha para controlar a máquina.')
+                self.execute(machine, action, elevated=True)
             elif error:
                 self.message.set_text(str(error))
             else:
                 self.scan('Inicialização solicitada. Aguarde o Windows iniciar antes de conectar.' if action == 'start' else
                           'Desligamento solicitado. Atualize a busca para conferir o estado da máquina.')
+
         self.work(lambda: vm_control.power(machine, action, elevated=elevated), complete,
                   'Ligando a máquina…' if action == 'start' else 'Desligando a máquina…')
 

@@ -3,11 +3,11 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.13**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.14**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
 atalhos personalizáveis, atualização da AJR Bar na sessão atual, correção
-do cast roxo via `/gfx:rfx` com `/gdi:sw` e detecção local de Docker/VM
-mais robusta (sockets, permissões e autorização).
+do cast roxo via `/gfx:rfx` com `/gdi:sw` e autorização automática do
+Docker/VM (pkexec + grupo `docker`, sem `usermod` manual).
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 

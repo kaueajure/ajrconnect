@@ -47,7 +47,7 @@ class MachineTests(unittest.TestCase):
             machines, notices, restricted = vm.discover()
         self.assertFalse(machines)
         self.assertEqual(restricted, ['docker'])
-        self.assertTrue(any('autorize' in notice for notice in notices))
+        self.assertTrue(any('autorização do sistema' in notice for notice in notices))
         self.assertFalse(run.call_args.kwargs['elevated'])
 
     def test_discovery_explains_missing_daemon_and_socket_acl(self):
@@ -65,7 +65,19 @@ class MachineTests(unittest.TestCase):
                              return_value=(('--host', 'unix:///var/run/docker.sock'), 'denied', Path('/var/run/docker.sock'))):
             machines, notices, restricted = vm.discover()
         self.assertEqual(restricted, ['docker'])
-        self.assertTrue(any('grupo docker' in notice or 'usermod -aG docker' in notice for notice in notices))
+        self.assertTrue(any('autorização do sistema' in notice for notice in notices))
+
+    def test_ensure_docker_group_skips_when_already_configured(self):
+        with patch.object(vm, 'docker_group_configured', return_value=True):
+            self.assertFalse(vm.ensure_docker_group())
+        with patch.object(vm, 'docker_group_configured', return_value=False), \
+                patch.object(vm, 'current_username', return_value='alice'), \
+                patch.object(vm, 'find_tool', side_effect=lambda name: '/usr/bin/' + name), \
+                patch.object(vm.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess([], 0, '', '')) as run:
+            self.assertTrue(vm.ensure_docker_group())
+        self.assertEqual(run.call_args.args[0],
+                         ['/usr/bin/pkexec', '/usr/bin/usermod', '-aG', 'docker', 'alice'])
 
     def test_docker_format_fallback_and_desktop_socket_order(self):
         tabular = 'abc123\tWindows\tUp 2 minutes\n'
