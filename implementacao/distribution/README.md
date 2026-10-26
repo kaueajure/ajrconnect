@@ -1,6 +1,6 @@
 # AJR Connect 6
 
-Versão de teste: **6.0.0-beta.14**. Consulte também a janela **Atualizações** do aplicativo.
+Versão de teste: **6.0.0-beta.15**. Consulte também a janela **Atualizações** do aplicativo.
 
 Cliente RDP com interface GTK4/libadwaita e barra de controles integrada ao cliente RDP.
 

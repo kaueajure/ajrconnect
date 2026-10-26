@@ -9,6 +9,7 @@ import tarfile
 import tempfile
 import threading
 import unittest
+import urllib.error
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import updates
@@ -50,8 +51,29 @@ class ReleaseTests(unittest.TestCase):
         self.assertIsNone(updates.select_release([broken, draft, release_entry('../../x')], '6.0.0'))
 
     def test_discovery_uses_public_release_metadata(self):
-        with patch.object(updates, 'read_small', return_value=json.dumps([release_entry('v6.0.0-beta.8')]).encode()):
+        with patch.object(updates, 'read_small', return_value=json.dumps([release_entry('v6.0.0-beta.8')]).encode()) as read:
             self.assertEqual(updates.check_updates(current='6.0.0-beta.7').tag, 'v6.0.0-beta.8')
+        self.assertIn('/updates.json', read.call_args.args[0])
+
+    def test_discovery_falls_back_to_api_and_explains_rate_limit(self):
+        pages = updates.catalog_urls()[0]
+        api = updates.catalog_urls()[1]
+
+        def missing_pages(url, *_args, **_kwargs):
+            if url == pages:
+                raise urllib.error.HTTPError(url, 404, 'Not Found', hdrs=None, fp=None)
+            return json.dumps([release_entry('v6.0.0-beta.8')]).encode()
+
+        with patch.object(updates, 'read_small', side_effect=missing_pages):
+            self.assertEqual(updates.check_updates(current='6.0.0-beta.7').tag, 'v6.0.0-beta.8')
+
+        def limited(url, *_args, **_kwargs):
+            raise urllib.error.HTTPError(url, 403, 'rate limit exceeded', hdrs=None, fp=None)
+
+        with patch.object(updates, 'read_small', side_effect=limited):
+            with self.assertRaisesRegex(RuntimeError, 'limitou consultas|install.sh'):
+                updates.check_updates(current='6.0.0-beta.7')
+        self.assertTrue(api.endswith('/releases?per_page=100'))
 
 
 class DownloadTests(unittest.TestCase):

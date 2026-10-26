@@ -1,3 +1,3 @@
 """Release identity shared by the application, packages and release preparation."""
-APP_VERSION = '6.0.0-beta.14'
+APP_VERSION = '6.0.0-beta.15'
 REPOSITORY = 'kaueajure/ajrconnect'

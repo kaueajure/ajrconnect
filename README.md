@@ -3,11 +3,12 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.14**. Inclui a interface V2, atualização pelo
-aplicativo, reconexão automática, conexões salvas, seleção de pastas,
-atalhos personalizáveis, atualização da AJR Bar na sessão atual, correção
-do cast roxo via `/gfx:rfx` com `/gdi:sw` e autorização automática do
-Docker/VM (pkexec + grupo `docker`, sem `usermod` manual).
+Versão de teste: **6.0.0-beta.15**. Inclui a interface V2, atualização pelo
+aplicativo (catálogo no GitHub Pages, sem rate limit da API), reconexão
+automática, conexões salvas, seleção de pastas, atalhos personalizáveis,
+atualização da AJR Bar na sessão atual, correção do cast roxo via
+`/gfx:rfx` com `/gdi:sw` e autorização automática do Docker/VM
+(pkexec + grupo `docker`, sem `usermod` manual).
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
@@ -298,8 +299,8 @@ Subir o código não publica os pacotes instaláveis. Para cada versão:
 2. Gere os pacotes com `python3 implementacao/package.py` e execute os testes.
 3. Gere as notas com `python3 implementacao/prepare_release.py --repo kaueajure/ajrconnect --output /tmp/ajr-publicacao-nova`. Use um diretório de saída que ainda não exista. Faça commit dos fontes correspondentes e envie para `main` antes de criar a Release.
 4. No GitHub, abra **Releases → Draft a new release**, escolha uma tag nova e a branch `main`, cole as notas geradas e anexe os três arquivos de `dist/`: o pacote Linux, os fontes e `SHA256SUMS`. Para versões beta, marque **Pre-release** e publique.
-5. Depois que os downloads estiverem disponíveis, atualize `version` e `expected` em `docs/install.sh`. O hash está em `dist/SHA256SUMS`, na linha do pacote Linux. Atualize também a versão e o link em `docs/index.md`, faça commit e envie para `main`.
-6. Aguarde o GitHub Pages publicar e confira `curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash -s -- --check`.
+5. Depois que os downloads estiverem disponíveis, atualize `version` e `expected` em `docs/install.sh`. O hash está em `dist/SHA256SUMS`, na linha do pacote Linux. Atualize também a versão e o link em `docs/index.md`, e acrescente a release em `docs/updates.json` (catálogo usado pelo verificador do app). Faça commit e envie para `main`.
+6. Aguarde o GitHub Pages publicar e confira `curl -fsSL https://kaueajure.github.io/ajrconnect/install.sh | bash -s -- --check` e se `updates.json` responde em HTTPS.
 
 O mesmo comando de instalação passa a atualizar os usuários para a versão nova,
 preservando configurações. Não substitua os arquivos de uma Release antiga;

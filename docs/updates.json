@@ -1,0 +1,249 @@
+[
+  {
+    "tag_name": "v6.0.0-beta.15",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 167393,
+        "state": "uploaded",
+        "digest": "sha256:551bd9e9c8b5c1af90ffebfce9e2a1b88024888b2a0dcf662cfbd69262afa7e3"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded",
+        "digest": "sha256:88dbc01f0ab3aab6302834ecf7c69af4b2a377cdde081aa60872a6968b908c9d"
+      }
+    ]
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:c002a5ff17406b05f694ddc576e6bbdfaf7c3ca4c6913e63fb68f91c42fc041e",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 167010,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:6f10f12c79859f5ec50d21867d7c36d7e77965268d0771571cd84be7b522ade6",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.14"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:025fa281427a36e2c164f265ce0b348b97a31e9dbe260d1f00cac770d1e12eb5",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 166645,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:82c6f4e2f68bd6930aa48c91d13b0db416f172ae59d8733d9d67ae853f823741",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.13"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:1a1396458d2548c0255a461441e97d9ad763a5a14ccfdd0e80cf82ad0166d0ff",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 164151,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:2f3bda04008a8c92cff860171049c1cbf6475749a206bb59aa91419f8518f155",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.11"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:95b1a9fa4be6273dad4c4490e5c222c60326136cf7bf0ecde68911d62f4e6a62",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 159417,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:90a2bc0b578db5fe06bc87df94914dd5cbcf64754b2830a79dc2c1e2adcec275",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.10"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:faef8e6911ab317defb20121234893ac56d1972f2808b21f0b599fe1213ce8b6",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 154420,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:085b5a383c5bb7899d1ec83967a02ea665013b05f3c388d3ce5dd1a56c40e704",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.9"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:c4aff9b045d667815adb93222a7f6995962c2ddb061870741e492ecaaf3091d8",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 148044,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:472b4de1b35335a20a4f967388bfd785f47f54e82facc48a5912ad21f9c2c8e4",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.8"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:22c8cf1195569dfe31d6acf627ac99e41d1965d2a78a22041d61e4ed6253b410",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 134060,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:716f5f7cdeaf1400b78e039c0d61a721c76208f69274899b472e5063f533061b",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.6"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:fb65415d1d04779bc60561cdae9066c55d881dbfa5d3e83a2404c23eb6b59e99",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 126028,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:dd7e4bd925d94dc67fd53f4ae3cce9f50cdd24ddd61ee3f99e9d5ea68046afdb",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.5"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:8f187f4b77d99691e0d331233cba0570fb91860b4113dd9223eec74ecf2bfe74",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 116184,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:8aa56c0554d388ca6d7301d101dce68dabc4242e222e4a84b1f24c45ef637ec5",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.4"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:07558cd2e41ac05b92691b659c97d26bacb123064d2882f7ff71a961b640ff30",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 114272,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:d075ee821affbb1f61899757c709c6cdbc152f513ab929ff448b2ed767d4f825",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.3"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:d772c3ce6b5291ac4de04507332cf481e039fcb384071f78b483edf8bc6e9061",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 114928,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:279f0a963d4929a0d35719318511875d769ad0bbb4d71928ee5712d1457c12e4",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.2"
+  },
+  {
+    "assets": [
+      {
+        "digest": "sha256:cf233b999f5f0d2d457261347e2763535177fc3b84e2f33eee0dd8ba110805f1",
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 112952,
+        "state": "uploaded"
+      },
+      {
+        "digest": "sha256:f76e7b68a3cf21c62539d015a5c48f143582f22aeea71d1a408a6bb5bcf54c81",
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded"
+      }
+    ],
+    "draft": false,
+    "prerelease": true,
+    "tag_name": "v6.0.0-beta.1"
+  }
+]

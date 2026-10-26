@@ -28,19 +28,15 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — autorização automática do Docker
+    return f'''# AJR Connect {TAG.removeprefix('v')} — atualizações sem limite da API
 
 ## Mudanças
 
-- A busca de máquinas pede autorização ao Linux sozinha (pkexec) quando o
-  socket do Docker está restrito — sem passo manual de `usermod`.
-- Depois de listar contêineres, o AJR configura o grupo `docker` de forma
-  permanente (também via pkexec). Após reiniciar a sessão do Linux, a senha
-  deixa de ser pedida.
-- Se a autorização for cancelada, o botão “Tentar autorização novamente”
-  reaparece.
-- A busca continua **somente neste computador** (Docker, Podman, libvirt,
-  VirtualBox).
+- A verificação de atualizações usa o catálogo público no GitHub Pages
+  (`updates.json`), sem depender do limite da API do GitHub.
+- Se o catálogo e a API falharem por rate limit, a mensagem orienta o
+  instalador por `install.sh`.
+- Mantém a autorização automática do Docker/VM da beta.14.
 
 ## Atualizar
 
@@ -52,7 +48,7 @@ Também é possível atualizar em **Mais opções → Atualizações** com
 
 ## Validação
 
-- Testes de descoberta e de `ensure_docker_group` na árvore atual.
+- Testes de descoberta de releases (Pages + fallback da API) na árvore atual.
 - Pacotes Linux e fontes com SHA256.
 
 A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5.

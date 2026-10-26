@@ -12,6 +12,7 @@ import sys
 import tarfile
 import tempfile
 import time
+import urllib.error
 import urllib.request
 from urllib.parse import urlparse
 from core import APP_DIR, DATA_DIR
@@ -21,6 +22,37 @@ ASSET = 'ajr-connect-6-linux-x86_64.tar.gz'
 MAX_DOWNLOAD = 256 * 1024 * 1024
 MAX_EXTRACTED = 512 * 1024 * 1024
 INSTALL_LOG = DATA_DIR / 'updates/update.log'
+
+
+def pages_base():
+    account, name = REPOSITORY.split('/', 1)
+    return f'https://{account}.github.io/{name}'
+
+
+def catalog_urls():
+    # Prefer GitHub Pages: no API rate limit. API remains a fallback.
+    return (f'{pages_base()}/updates.json',
+            f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=100')
+
+
+def allowed_host(hostname):
+    return hostname in ('github.com', 'api.github.com') \
+        or (hostname or '').endswith(('.githubusercontent.com', '.github.io'))
+
+
+def rate_limited(error):
+    return isinstance(error, urllib.error.HTTPError) and error.code == 403 \
+        and 'rate limit' in str(error).casefold()
+
+
+def catalog_error(errors):
+    if any(rate_limited(error) for error in errors):
+        return RuntimeError(
+            'O GitHub limitou consultas temporariamente. Atualize no terminal com: '
+            f'curl -fsSL {pages_base()}/install.sh | bash')
+    if errors:
+        return errors[-1]
+    return ValueError('Não foi possível obter a lista de versões.')
 
 
 class UpdateCancelled(Exception):
@@ -85,13 +117,16 @@ def select_release(releases, current=APP_VERSION, include_prereleases=True):
 
 
 def open_url(url):
-    request = urllib.request.Request(url, headers={'User-Agent': f'AJR-Connect/{APP_VERSION}',
-        'Accept': 'application/vnd.github+json' if 'api.github.com/' in url else 'application/octet-stream',
-        'X-GitHub-Api-Version': '2022-11-28'})
+    headers = {'User-Agent': f'AJR-Connect/{APP_VERSION}', 'Accept': 'application/octet-stream'}
+    if 'api.github.com/' in url:
+        headers.update(Accept='application/vnd.github+json',
+                       **{'X-GitHub-Api-Version': '2022-11-28'})
+    elif url.endswith('/updates.json'):
+        headers['Accept'] = 'application/json'
+    request = urllib.request.Request(url, headers=headers)
     response = urllib.request.urlopen(request, timeout=10)
     parsed = urlparse(response.geturl())
-    if parsed.scheme != 'https' or parsed.hostname not in ('github.com', 'api.github.com') \
-            and not (parsed.hostname or '').endswith('.githubusercontent.com'):
+    if parsed.scheme != 'https' or not allowed_host(parsed.hostname):
         response.close()
         raise ValueError('O download foi redirecionado para um endereço não permitido.')
     return response
@@ -107,12 +142,22 @@ def read_small(url, limit, cancel=None):
     return content
 
 
+def load_release_catalog(cancel=None):
+    errors = []
+    for url in catalog_urls():
+        try:
+            entries = json.loads(read_small(url, 4 * 1024 * 1024, cancel))
+        except Exception as exc:
+            errors.append(exc)
+            continue
+        if isinstance(entries, list):
+            return entries
+        errors.append(ValueError('O servidor não retornou uma lista de versões válida.'))
+    raise catalog_error(errors)
+
+
 def check_updates(*, current=APP_VERSION, include_prereleases=True, cancel=None):
-    url = f'https://api.github.com/repos/{REPOSITORY}/releases?per_page=100'
-    entries = json.loads(read_small(url, 4 * 1024 * 1024, cancel))
-    if not isinstance(entries, list):
-        raise ValueError('O servidor não retornou uma lista de versões válida.')
-    return select_release(entries, current, include_prereleases)
+    return select_release(load_release_catalog(cancel), current, include_prereleases)
 
 
 def checksum_for(content, name=ASSET):
