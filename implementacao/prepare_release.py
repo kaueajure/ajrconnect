@@ -28,25 +28,19 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — descobrir, ligar e desligar máquinas locais
+    return f'''# AJR Connect {TAG.removeprefix('v')} — cores RDP e detecção local de Docker/VM
 
 ## Mudanças
 
-- Busca de máquinas registradas no Docker, Docker do usuário quando disponível,
-  Podman do usuário, KVM/libvirt do sistema e usuário e VirtualBox.
-- Lista inclui máquinas paradas, com nome, gerenciador e estado consultado.
-- Seleção explícita da máquina que hospeda o Windows, salva por conexão usando
-  o identificador do contêiner ou UUID da VM.
-- Botões **Ligar Windows** e **Desligar Windows** no botão de computador do
-  cabeçalho ou em **Mais opções → Máquinas deste computador**.
-- Desligamento com confirmação e cancelamento da reconexão RDP. Contêineres
-  recebem stop com até 120 segundos de espera; VMs recebem shutdown/ACPI.
-- Consultas restritas e ações sem permissão oferecem autorização pelo Linux,
-  sem guardar a senha de administrador no AJR.
-
-A busca é local e não instala gerenciadores. Podman rootful e hosts remotos
-não são suportados por esses controles. O AJR não deduz o sistema convidado
-nem vincula automaticamente uma VM ao servidor RDP: confirme a seleção.
+- Correção do cast roxo em UIs escuras do Windows: o cliente usa `/gfx:rfx`
+  com `/gdi:sw` (sem `/gdi:hw`).
+- Detecção local de Docker/VM mais robusta: mais caminhos de socket
+  (incluindo Docker Desktop), mensagens claras de permissão/daemon e diálogo
+  para autorizar consultas restritas.
+- A busca de máquinas continua **somente neste computador** (Docker, Podman,
+  libvirt, VirtualBox). Não controla VMs hospedadas em outro PC via RDP.
+- Orientação para quem tem Docker sem permissão: autorizar no diálogo ou
+  `sudo usermod -aG docker $USER` e reiniciar a sessão.
 
 ## Atualizar
 
@@ -58,16 +52,14 @@ Também é possível atualizar em **Mais opções → Atualizações** com
 
 ## Validação
 
-- 94 testes automatizados aprovados, incluindo descoberta, isolamento dos
-  comandos locais, permissões, vínculos por perfil e controles GTK.
-- Interface conferida em temas claro/escuro e tamanhos de janela diferentes.
-- Descoberta real somente de leitura no computador de desenvolvimento.
+- Testes de display/cores e de descoberta de máquinas aprovados na árvore atual.
 - Pacotes Linux e fontes com SHA256 e verificação de dados privados.
+- Comparação visual: print Windows vs cliente Linux; `/gfx:rfx` removeu o cast
+  roxo medido no caminho só com software GDI.
 
-Nenhuma VM foi ligada ou desligada nos testes. As ações de energia foram
-validadas com simulações, sem consultar o chaveiro real. A versão é de teste,
-Linux x86_64 com FreeRDP/WinPR 2.11.5. A validação em instalação limpa e o
-ciclo real de energia em cada gerenciador continuam pendentes.
+A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5. A validação em
+instalação limpa e o ciclo real de energia em cada gerenciador continuam
+pendentes.
 '''
 
 
