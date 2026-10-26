@@ -28,27 +28,30 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — atualizações sem limite da API
+    return f'''# AJR Connect {TAG.removeprefix('v')} — sair, rede, presets e diagnóstico
 
 ## Mudanças
 
-- A verificação de atualizações usa o catálogo público no GitHub Pages
-  (`updates.json`), sem depender do limite da API do GitHub.
-- Se o catálogo e a API falharem por rate limit, a mensagem orienta o
-  instalador por `install.sh`.
-- Mantém a autorização automática do Docker/VM da beta.14.
+- Menu **Sair** encerra o aplicativo de verdade (desconecta antes, se preciso).
+- Com sessão ativa, o X esconde a janela e a notificação do sistema oferece
+  Mostrar / Desconectar / Sair.
+- Indicador de rede (RTT e quedas) no status e na AJR Bar.
+- Perfis de qualidade **Casa / 4K / Lab**.
+- Exportar e importar conexões (JSON sem senhas).
+- Diagnóstico copiável para suporte.
+- Canal de atualização **Estável** ou **Versões de teste**.
 
 ## Atualizar
 
 Desconecte o Windows antes de instalar. Execute no terminal Linux, sem sudo:
 
 {download_commands(repository)}
-Também é possível atualizar em **Mais opções → Atualizações** com
-**Incluir versões de teste** ativado. Reabra o aplicativo depois de instalar.
+Também é possível atualizar em **Mais opções → Atualizações** com o canal
+**Versões de teste**. Reabra o aplicativo depois de instalar.
 
 ## Validação
 
-- Testes de descoberta de releases (Pages + fallback da API) na árvore atual.
+- Testes do pacote de features e de display/updates na árvore atual.
 - Pacotes Linux e fontes com SHA256.
 
 A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5.

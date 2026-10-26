@@ -52,6 +52,23 @@ class DisplayTests(unittest.TestCase):
             self.assertFalse(cfg['ram_alert'])
             self.assertEqual(cfg['ram_limit_gib'], 4)
 
+    def test_quality_presets_map_casa_4k_lab(self):
+        self.assertEqual([item[1] for item in core.QUALITY_PRESETS], ['Casa', '4K', 'Lab'])
+        self.assertEqual([item[2] for item in core.QUALITY_PRESETS], ['monitor', '4k', '1080p'])
+        for quality, _label, resolution in core.QUALITY_PRESETS:
+            cfg = copy.deepcopy(core.DEFAULT)
+            cfg.update(quality=quality, resolution=resolution)
+            command = core.build_command(cfg, MONITOR)
+            self.assertIn('/gfx:rfx', command)
+            if quality == 1:
+                self.assertIn('+menu-anims', command)
+            else:
+                self.assertIn('-menu-anims', command)
+            if quality == 2:
+                self.assertIn('-window-drag', command)
+            else:
+                self.assertIn('+window-drag', command)
+
     def test_monitor_share_name_collision_is_rejected(self):
         cfg = copy.deepcopy(core.DEFAULT)
         cfg.update(ram_alert=True, shares=[dict(name='ajrmonitor', path='/tmp')])

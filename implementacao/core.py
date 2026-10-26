@@ -25,6 +25,12 @@ RESOLUTIONS = (
     ('480p', '480p · 854 × 480', (854, 480)),
     ('360p', '360p · 640 × 360', (640, 360)),
 )
+# quality index → label, default resolution applied when the preset is chosen
+QUALITY_PRESETS = (
+    (0, 'Casa', 'monitor'),
+    (1, '4K', '4k'),
+    (2, 'Lab', '1080p'),
+)
 DEFAULT = dict(server='', user='', shares=[], quality=0, resolution='monitor',
     vm_backend='', vm_id='', vm_name='',
     ram_alert=False, ram_limit_gib=4.0,
@@ -33,9 +39,11 @@ DEFAULT = dict(server='', user='', shares=[], quality=0, resolution='monitor',
     fullscreen_shortcut='<Control><Alt>Return',
     remote_alt_tab=True, remote_super=True, remote_alt_f4=True,
     keyboard_shortcuts=[], auto_reconnect=True,
-    profiles=[], active_profile='', appearance='dark', check_updates=True, update_prereleases=True)
+    profiles=[], active_profile='', appearance='dark', check_updates=True,
+    update_prereleases=True, update_channel='testing')
 PROFILE_KEYS = tuple(k for k in DEFAULT if k not in (
-    'profiles', 'active_profile', 'appearance', 'check_updates', 'update_prereleases'))
+    'profiles', 'active_profile', 'appearance', 'check_updates',
+    'update_prereleases', 'update_channel'))
 
 
 def atomic_json(path, data):
@@ -106,8 +114,16 @@ def load_cfg():
     if isinstance(data, dict):
         appearance = data.get('appearance', 'dark')
         cfg['appearance'] = appearance if appearance in ('dark', 'light', 'system') else 'dark'
-        for key in ('check_updates', 'update_prereleases'):
-            cfg[key] = data[key] if isinstance(data.get(key), bool) else DEFAULT[key]
+        cfg['check_updates'] = data['check_updates'] if isinstance(data.get('check_updates'), bool) \
+            else DEFAULT['check_updates']
+        channel = data.get('update_channel')
+        if channel in ('stable', 'testing'):
+            cfg['update_channel'] = channel
+        elif isinstance(data.get('update_prereleases'), bool):
+            cfg['update_channel'] = 'testing' if data['update_prereleases'] else 'stable'
+        else:
+            cfg['update_channel'] = DEFAULT['update_channel']
+        cfg['update_prereleases'] = cfg['update_channel'] == 'testing'
         seen = set()
         for profile in data.get('profiles', []) if isinstance(data.get('profiles'), list) else []:
             if not isinstance(profile, dict) or not isinstance(profile.get('id'), str) \
@@ -128,12 +144,64 @@ def load_cfg():
 def save_cfg(cfg):
     # Explicit allowlist: credentials never enter the JSON, even nested in profiles.
     data = {k: copy.deepcopy(cfg.get(k, v)) for k, v in DEFAULT.items()}
+    if data.get('update_channel') not in ('stable', 'testing'):
+        data['update_channel'] = 'testing' if data.get('update_prereleases', True) else 'stable'
+    data['update_prereleases'] = data['update_channel'] == 'testing'
     data['keyboard_shortcuts'] = normalize_settings(data)['keyboard_shortcuts']
     data['profiles'] = [{k: copy.deepcopy(p[k]) for k in ('id', 'name', *PROFILE_KEYS)
                          if k in p} for p in data['profiles']]
     for profile in data['profiles']:
         profile['keyboard_shortcuts'] = normalize_settings(profile)['keyboard_shortcuts']
     atomic_json(CFG_FILE, data)
+
+
+def export_profiles(cfg):
+    profiles = []
+    for profile in cfg.get('profiles', []):
+        if not isinstance(profile, dict) or not isinstance(profile.get('id'), str):
+            continue
+        settings = normalize_settings(profile)
+        profiles.append(dict(id=profile['id'],
+            name=profile['name'] if isinstance(profile.get('name'), str) else 'Conexão',
+            **{k: copy.deepcopy(settings[k]) for k in PROFILE_KEYS}))
+    return dict(format='ajr-connect-profiles', version=1, profiles=profiles)
+
+
+def import_profiles(cfg, payload):
+    if not isinstance(payload, dict) or payload.get('format') != 'ajr-connect-profiles':
+        raise ValueError('O arquivo não é um export de conexões do AJR Connect.')
+    try:
+        version = int(payload.get('version', 0))
+    except (TypeError, ValueError) as exc:
+        raise ValueError('Versão do export inválida.') from exc
+    if version != 1:
+        raise ValueError('Este export usa uma versão não suportada.')
+    entries = payload.get('profiles')
+    if not isinstance(entries, list) or not entries:
+        raise ValueError('O arquivo não contém conexões para importar.')
+    seen = {profile['id'] for profile in cfg['profiles']}
+    imported = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        settings = normalize_settings(entry)
+        name = entry['name'] if isinstance(entry.get('name'), str) and entry['name'].strip() \
+            else (settings['server'] or 'Conexão')
+        profile_id = entry['id'] if isinstance(entry.get('id'), str) and entry['id'] \
+            and entry['id'] not in seen else uuid.uuid4().hex
+        while profile_id in seen:
+            profile_id = uuid.uuid4().hex
+        profile = dict(id=profile_id, name=name.strip() or 'Conexão',
+                       **{k: copy.deepcopy(settings[k]) for k in PROFILE_KEYS})
+        cfg['profiles'].append(profile)
+        seen.add(profile_id)
+        imported += 1
+    if not imported:
+        raise ValueError('Nenhuma conexão válida foi encontrada no arquivo.')
+    if not cfg['active_profile']:
+        cfg['active_profile'] = cfg['profiles'][0]['id']
+        select_profile(cfg, cfg['active_profile'])
+    return cfg, imported
 
 
 def store_profile(cfg, name):

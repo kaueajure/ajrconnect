@@ -6,7 +6,7 @@ gi.require_version('Adw', '1')
 from gi.repository import Gtk, Adw, Pango, Gio, GObject
 from dialogs import ShortcutEditor
 from keyboard import shortcut_parts
-from core import RESOLUTIONS
+from core import QUALITY_PRESETS, RESOLUTIONS
 
 ASSETS = Path(__file__).resolve().parent / 'assets'
 
@@ -120,7 +120,11 @@ class DesktopView:
         for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
                                        ('machines', 'Máquinas deste computador', w.open_machines),
                                        ('memory', 'RAM da VM', w.open_memory_monitor),
-                                       ('updates', 'Atualizações', w.open_updates)]:
+                                       ('updates', 'Atualizações', w.open_updates),
+                                       ('export', 'Exportar conexões…', w.export_connections),
+                                       ('import', 'Importar conexões…', w.import_connections),
+                                       ('diagnostics', 'Diagnóstico', w.open_diagnostics),
+                                       ('quit', 'Sair', w.quit_application)]:
             action = Gio.SimpleAction.new('ui-' + name, None)
             action.connect('activate', lambda _a, _p, cb=callback: cb())
             w.add_action(action)
@@ -483,9 +487,11 @@ class DesktopView:
         change.connect('clicked', lambda *_: ShortcutEditor(w, w.cfg['fullscreen_shortcut'], w.set_shortcut).present())
         w.shortcut.add_suffix(change)
         display.add(w.shortcut)
-        w.quality = Adw.ComboRow(title='Qualidade da imagem',
-            subtitle='Todos os modos preservam cores, tema, papel de parede e fontes.',
-            model=Gtk.StringList.new(['Equilibrada', 'Mais qualidade', 'Mais leve']), selected=w.cfg['quality'])
+        w.quality = Adw.ComboRow(title='Perfil de qualidade',
+            subtitle='Casa, 4K ou Lab ajustam imagem e resolução sugerida. Pastas compartilhadas não mudam.',
+            model=Gtk.StringList.new([label for _index, label, _resolution in QUALITY_PRESETS]),
+            selected=w.cfg['quality'])
+        w.quality.connect('notify::selected', w.quality_preset_changed)
         display.add(w.quality)
         memory = Adw.PreferencesGroup(title='Memória da VM',
             description='Avisa sobre a RAM usada dentro do Windows. Não altera a RAM reservada pelo hipervisor.')

@@ -36,6 +36,8 @@ class X11:
             'XSendEvent': (C.c_int, [C.c_void_p, Window, C.c_int, C.c_long, C.POINTER(XEvent)]),
             'XFlush': (C.c_int, [C.c_void_p]),
             'XFree': (C.c_int, [C.c_void_p]),
+            'XChangeProperty': (C.c_int, [C.c_void_p, Window, C.c_ulong, C.c_ulong,
+                C.c_int, C.c_int, C.c_void_p, C.c_int]),
             'XGetGeometry': (C.c_int, [C.c_void_p, Window, C.POINTER(Window),
                 C.POINTER(C.c_int), C.POINTER(C.c_int), C.POINTER(C.c_uint),
                 C.POINTER(C.c_uint), C.POINTER(C.c_uint), C.POINTER(C.c_uint)]),
@@ -104,6 +106,15 @@ class X11:
     def state(self, pid):
         window = self.find_window(pid)
         return self.property(window, '_AJR_STATE_V1') if window else None
+
+    def publish_net(self, pid, rtt_ms, drops, level):
+        window = self.find_window(pid)
+        if window is None:
+            return
+        values = (C.c_ulong * 3)(max(0, int(rtt_ms)), max(0, int(drops)), max(0, min(2, int(level))))
+        self.lib.XChangeProperty(self.display, window, self.atom('_AJR_NET_V1'),
+            self.atom('CARDINAL'), 32, 0, C.cast(values, C.c_void_p), 3)
+        self.lib.XFlush(self.display)
 
     def is_active(self, pid):
         window = self.find_window(pid)

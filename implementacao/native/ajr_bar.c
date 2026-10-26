@@ -1,5 +1,6 @@
 /* AJR session controls are children of the RDP window, so they work above the
  * framebuffer on X11 and XWayland without a GNOME extension. Apache-2.0. */
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <cairo/cairo-xlib.h>
@@ -48,6 +49,31 @@ static void text(cairo_t* cr, const char* value, int x, int w, int h, int ui_sca
     pango_font_description_free(font);
     g_object_unref(layout);
 }
+static void net_label(xfContext* xfc, char* out, size_t size)
+{
+    Atom actual_type = None;
+    int format = 0;
+    unsigned long count = 0, bytes = 0;
+    unsigned char* data = NULL;
+    out[0] = '\0';
+    if (!xfc->window)
+        return;
+    if (XGetWindowProperty(xfc->display, xfc->window->handle,
+            XInternAtom(xfc->display, "_AJR_NET_V1", False), 0, 3, False, XA_CARDINAL,
+            &actual_type, &format, &count, &bytes, &data) != Success || !data) {
+        if (data) XFree(data);
+        return;
+    }
+    if (format == 32 && count >= 3) {
+        unsigned long* values = (unsigned long*)data;
+        unsigned long rtt = values[0], level = values[2];
+        if (level >= 2 || rtt == 0)
+            snprintf(out, size, "Rede lenta");
+        else
+            snprintf(out, size, "%lu ms", rtt);
+    }
+    XFree(data);
+}
 static void paint(xfContext* xfc)
 {
     int w = width(xfc), h = height(xfc), s = scale(xfc);
@@ -64,8 +90,10 @@ static void paint(xfContext* xfc)
     }
     int brand = brand_width(xfc);
     if (brand) {
+        char network[32];
+        net_label(xfc, network, sizeof(network));
         if (xfc->ajr_bar_dark) color(cr, 241, 241, 244); else color(cr, 32, 33, 39);
-        text(cr, "AJR Connect", 0, brand, h, s);
+        text(cr, network[0] ? network : "AJR Connect", 0, brand, h, s);
     }
     const char* labels[] = {w >= 360 * s ? "Minimizar" : "Min.",
         w >= 560 * s ? "Sair de tela cheia" : (w >= 360 * s ? "Restaurar" : "Janela"),

@@ -14,6 +14,7 @@ FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_portal.py
          'core.py', 'integration.py', 'x11.py', 'ajr-control', 'ajr-connect',
          'dependencies.py',
          'version.py', 'reconnect.py', 'updates.py', 'update_dialog.py', 'memory_monitor.py', 'vm_control.py', 'vm_dialog.py',
+         'tray.py',
          'ajr-connect.desktop.in',
          'enable-extension.py', 'extensao/extension.js', 'extensao/integration.js', 'extensao/stylesheet.css',
          'extensao/metadata.json', 'native/ajr-freerdp')
@@ -138,6 +139,40 @@ def check_compatibility(base=BASE):
     print('\n' + ('Dependências disponíveis.' if compatible else
                   'Dependências ausentes ou incompatíveis. Resolva as falhas acima.'))
     return compatible
+
+
+def collect_support_report(base=BASE, *, cfg=None, portal=None):
+    """Human-readable diagnostics for support; never includes passwords."""
+    from version import APP_VERSION, REPOSITORY
+    lines = ['AJR Connect — diagnóstico',
+             'Versão: ' + APP_VERSION,
+             'Repositório: ' + REPOSITORY,
+             '']
+    for check in collect_checks(base):
+        lines.append(('OK' if check.ok else 'FALHA') + ' — ' + check.name + ': ' + check.detail)
+        if not check.ok and check.remedy:
+            lines.append('  Como resolver: ' + check.remedy)
+    lines.append('')
+    try:
+        import vm_control
+        _host, status, path = vm_control.docker_host_args('docker')
+        lines.append('Docker socket: ' + (str(path) if path else 'ausente') + ' (' + status + ')')
+        lines.append('Grupo docker configurado: ' +
+                     ('sim' if vm_control.docker_group_configured() else 'não'))
+    except Exception as exc:
+        lines.append('Docker: não foi possível consultar (' + str(exc) + ')')
+    if portal is not None:
+        lines.append('Portal de teclado: ' +
+                     ('autorizado' if getattr(portal, 'ready', False) else 'não autorizado') +
+                     ('; · pendente' if getattr(portal, 'pending', False) else '') +
+                     ('; · token local' if getattr(portal, 'token_path', None)
+                      and portal.token_path.exists() else ''))
+    if isinstance(cfg, dict):
+        lines.append('Tema: ' + str(cfg.get('appearance', '')))
+        lines.append('Canal de atualização: ' + str(cfg.get('update_channel',
+                     'testing' if cfg.get('update_prereleases', True) else 'stable')))
+        lines.append('Verificar ao abrir: ' + ('sim' if cfg.get('check_updates') else 'não'))
+    return '\n'.join(lines)
 
 
 if __name__ == '__main__':

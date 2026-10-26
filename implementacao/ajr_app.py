@@ -15,9 +15,9 @@ import subprocess
 import threading
 import time
 import sys
-from core import (DATA_DIR, NATIVE, RUNTIME_DIR, atomic_json, build_command,
-                  DEFAULT, PROFILE_KEYS, RESOLUTIONS, detect_monitors, host_port, load_cfg,
-                  resolve_monitor, save_cfg, select_profile, store_profile)
+from core import (DATA_DIR, NATIVE, RUNTIME_DIR, QUALITY_PRESETS, atomic_json, build_command,
+                  DEFAULT, PROFILE_KEYS, RESOLUTIONS, detect_monitors, export_profiles, host_port,
+                  import_profiles, load_cfg, resolve_monitor, save_cfg, select_profile, store_profile)
 from x11 import X11
 from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
 from keyboard import native_rules, validate_rules, x11_modifiers, desktop_bindings, desktop_shortcut
@@ -25,9 +25,35 @@ from keyboard_portal import KeyboardPortal
 from reconnect import RetryPlan
 from memory_monitor import MemoryMonitor, START_COMMAND, GIB, describe
 from vm_dialog import MachineWindow
+from check_compatibility import collect_support_report
+from tray import TrayController
 import updates
 from update_dialog import UpdateWindow
 from ui import DesktopView
+
+
+def measure_rtt_ms(server, timeout=1.0):
+    try:
+        endpoint = host_port(server)
+    except ValueError:
+        return None
+    started = time.monotonic()
+    try:
+        with socket.create_connection(endpoint, timeout=timeout):
+            pass
+    except OSError:
+        return None
+    return max(1, int((time.monotonic() - started) * 1000))
+
+
+def net_level(rtt_ms):
+    if rtt_ms is None or rtt_ms <= 0:
+        return 2
+    if rtt_ms < 80:
+        return 0
+    if rtt_ms < 200:
+        return 1
+    return 2
 
 APP_ID = 'com.ajure.AJRConnect'
 EXTENSION_ID = 'ajr-connect@ajure.local'
@@ -88,10 +114,16 @@ class MainWindow(Adw.ApplicationWindow):
         self._machine_window = None
         self._machine_action = False
         self._available_release, self._update_window = None, None
+        self._quit_after_disconnect = False
+        self._net_rtt_ms = None
+        self._net_drops = 0
+        self._net_next_poll = 0
+        self._quality_applying = False
         self.set_default_size(1120, 820)
         self.set_size_request(620, 480)
         self.connect('close-request', self.close_requested)
         self.ui = DesktopView(self)
+        self.tray = TrayController(self)
         self.refresh_monitors()
         self.render_shares()
         self.render_keyboard_rules()
@@ -242,9 +274,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.clipboard.set_active(self.cfg['clipboard'])
         self.remember.set_active(self.cfg['remember'])
         self.auto_reconnect.set_active(self.cfg['auto_reconnect'])
+        self._quality_applying = True
         self.quality.set_selected(self.cfg['quality'])
         self.resolution.set_selected(next(i for i, item in enumerate(RESOLUTIONS)
                                           if item[0] == self.cfg['resolution']))
+        self._quality_applying = False
         self.ram_alert.set_active(self.cfg['ram_alert'])
         self.ram_limit.set_value(self.cfg['ram_limit_gib'])
         self.ram_status.set_subtitle('Inicie o coletor após conectar.' if self.cfg['ram_alert']
@@ -452,10 +486,30 @@ class MainWindow(Adw.ApplicationWindow):
         self._update_window = UpdateWindow(self)
         self._update_window.present()
 
+    def update_channel(self):
+        channel = self.cfg.get('update_channel')
+        if channel in ('stable', 'testing'):
+            return channel
+        return 'testing' if self.cfg.get('update_prereleases', True) else 'stable'
+
+    def quality_preset_changed(self, *_):
+        if self._profiles_updating or self._quality_applying or self.connection_busy():
+            return
+        index = int(self.quality.get_selected())
+        if not 0 <= index < len(QUALITY_PRESETS):
+            return
+        resolution = QUALITY_PRESETS[index][2]
+        target = next(i for i, item in enumerate(RESOLUTIONS) if item[0] == resolution)
+        if int(self.resolution.get_selected()) != target:
+            self._quality_applying = True
+            self.resolution.set_selected(target)
+            self._quality_applying = False
+
     def check_updates_on_startup(self):
         if self._closing or not self.cfg['check_updates']:
             return GLib.SOURCE_REMOVE
-        include = self.cfg['update_prereleases']
+        channel = self.update_channel()
+        include = channel == 'testing'
         def worker():
             try:
                 release = updates.check_updates(include_prereleases=include)
@@ -463,7 +517,7 @@ class MainWindow(Adw.ApplicationWindow):
                 return  # Manual verification displays network errors and retry.
             def done():
                 if self._closing or not self.cfg['check_updates'] or \
-                        self.cfg['update_prereleases'] != include or not release:
+                        self.update_channel() != channel or not release:
                     return
                 self._available_release = release
                 self.ui.update_available(True)
@@ -483,6 +537,8 @@ class MainWindow(Adw.ApplicationWindow):
                          stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                          start_new_session=True)
         self._closing = True
+        if getattr(self, 'tray', None):
+            self.tray.dispose()
         self.keyboard_portal.close()
         self.get_application().quit()
 
@@ -719,6 +775,9 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_request, self._retry_plan = None, None
         self._launching = self._reconnecting = False
         self._status_generation += 1
+        self._net_rtt_ms = None
+        if getattr(self, 'tray', None):
+            self.tray.set_connected(False)
         self.controls.set_visible(False)
         self.form.set_sensitive(True)
         self.connect_btn.set_sensitive(True)
@@ -726,13 +785,18 @@ class MainWindow(Adw.ApplicationWindow):
         self.connect_btn.add_css_class('suggested-action')
         self.set_status(status, 'Você pode conectar novamente.')
         self.show_error(error)
+        if self._quit_after_disconnect:
+            self._quit_after_disconnect = False
+            self._finalize_quit()
 
     def schedule_reconnect(self, message='A conexão com o Windows foi interrompida.'):
+        self._net_drops += 1
         delay = self._retry_plan.next_delay() if self._retry_plan else None
         if delay is None:
             self.finish_connection('Não foi possível recuperar a conexão após 5 tentativas. '
                                    'Confira a rede e tente conectar novamente. ' + message)
-            self.present()
+            if not self._quit_after_disconnect:
+                self.present()
             return
         self._reconnecting = True
         self._retry_due = time.monotonic() + delay
@@ -748,7 +812,8 @@ class MainWindow(Adw.ApplicationWindow):
             return GLib.SOURCE_REMOVE
         self._retry_source = GLib.timeout_add(int(delay * 1000), retry)
         self.update_reconnect_status()
-        self.present()
+        if not self._quit_after_disconnect:
+            self.present()
 
     def update_reconnect_status(self):
         seconds = max(0, int(self._retry_due - time.monotonic() + .999))
@@ -807,33 +872,73 @@ class MainWindow(Adw.ApplicationWindow):
             error = '' if self._manual_disconnect or started and code in (0, 1, 2, 11, 12) else \
                 f'A conexão terminou (código {code}). Abra os registros para verificar o motivo.'
             self.finish_connection(error)
-            self.present()
+            if not self._quit_after_disconnect:
+                self.present()
             return GLib.SOURCE_CONTINUE
         state = self.x11.state(self.proc.pid)
         self.dispatch_local_shortcuts()
         if state and not self._started:
             self._started = True
             self._reconnecting = False
+            self._net_next_poll = 0
             if self._retry_plan:
                 self._retry_plan.reset()
             self.connect_btn.set_label('Desconectar')
             self.controls.set_visible(True)
             self.connect_btn.remove_css_class('suggested-action')
+            if getattr(self, 'tray', None):
+                self.tray.set_connected(True)
             if self.session['start_fullscreen']:
                 self.control('fullscreen')
         if state:
             self.poll_memory()
+            self.poll_network()
             if self._connection_request:
                 self._connection_request['cfg']['fullscreen'] = bool(state[1])
+            network = self.network_subtitle()
             self.set_status('Conectado · ' + ('Tela cheia' if state[1] else 'Modo janela'),
-                f"{self.cfg['user']} em {self.cfg['server']} · {self.session['connector']}",
+                f"{self.cfg['user']} em {self.cfg['server']} · {self.session['connector']}"
+                + (f' · {network}' if network else ''),
                 'network-transmit-receive-symbolic')
         elif self._reconnecting:
             self.set_status('Reconectando ao Windows',
-                f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}. Você pode cancelar.')
+                f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}. Você pode cancelar.'
+                + (f' · {self._net_drops} queda(s)' if self._net_drops else ''))
         elif time.monotonic() - self._launch_time > 10:
             self.set_status('Aguardando a sessão', 'A autenticação está em andamento. Você pode cancelar.')
         return GLib.SOURCE_CONTINUE
+
+    def network_subtitle(self):
+        parts = []
+        if self._net_rtt_ms:
+            parts.append(f'{self._net_rtt_ms} ms')
+        elif self._net_rtt_ms == 0:
+            parts.append('rede indisponível')
+        if self._net_drops:
+            parts.append(f'{self._net_drops} queda(s)')
+        return ' · '.join(parts)
+
+    def poll_network(self):
+        if time.monotonic() < self._net_next_poll:
+            return
+        self._net_next_poll = time.monotonic() + 3
+        server = self.cfg.get('server', '')
+        generation = self._connection_generation
+        def worker():
+            rtt = measure_rtt_ms(server, timeout=1.0)
+            def done():
+                if self._closing or generation != self._connection_generation or not self.proc:
+                    return
+                self._net_rtt_ms = 0 if rtt is None else rtt
+                level = net_level(None if rtt is None else rtt)
+                if self.x11 and self.proc:
+                    try:
+                        self.x11.publish_net(self.proc.pid, self._net_rtt_ms or 0,
+                                             self._net_drops, level)
+                    except RuntimeError:
+                        pass
+            GLib.idle_add(done)
+        threading.Thread(target=worker, daemon=True).start()
 
     def close_memory_dialogs(self):
         for name in ('_ram_dialog', '_ram_guide'):
@@ -1010,28 +1115,191 @@ class MainWindow(Adw.ApplicationWindow):
             self._machine_window = MachineWindow(self)
         self._machine_window.present()
 
-    def close_requested(self, *_):
-        # Keep the session and its controller available; closing the GUI hides it.
-        if self.connection_busy() or self._updating or self._machine_action:
-            self.set_visible(False)
-            return True
+    def export_connections(self, *_):
+        payload = export_profiles(self.cfg)
+        if not payload['profiles']:
+            self.toast.add_toast(Adw.Toast(title='Não há conexões salvas para exportar.'))
+            return
+        dialog = Gtk.FileDialog(title='Exportar conexões', initial_name='ajr-conexoes.json')
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        json_filter = Gtk.FileFilter(name='JSON')
+        json_filter.add_pattern('*.json')
+        filters.append(json_filter)
+        dialog.set_filters(filters)
+
+        def saved(chooser, result):
+            try:
+                file = chooser.save_finish(result)
+            except GLib.Error:
+                return
+            if not file:
+                return
+            try:
+                path = Path(file.get_path())
+                path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
+                self.toast.add_toast(Adw.Toast(
+                    title=f'{len(payload["profiles"])} conexão(ões) exportada(s). Senhas não foram incluídas.'))
+            except OSError as exc:
+                self.show_error('Não foi possível exportar: ' + str(exc))
+
+        dialog.save(self, None, saved)
+
+    def import_connections(self, *_):
+        if self.connection_busy() or self._updating:
+            self.show_error('Desconecte ou aguarde a atualização antes de importar conexões.')
+            return
+        dialog = Gtk.FileDialog(title='Importar conexões')
+        filters = Gio.ListStore.new(Gtk.FileFilter)
+        json_filter = Gtk.FileFilter(name='JSON')
+        json_filter.add_pattern('*.json')
+        filters.append(json_filter)
+        dialog.set_filters(filters)
+
+        def opened(chooser, result):
+            try:
+                file = chooser.open_finish(result)
+            except GLib.Error:
+                return
+            if not file:
+                return
+            try:
+                payload = json.loads(Path(file.get_path()).read_text(encoding='utf-8'))
+                self.persist()
+                _, count = import_profiles(self.cfg, payload)
+                save_cfg(self.cfg)
+                self.apply_profile()
+                self.toast.add_toast(Adw.Toast(
+                    title=f'{count} conexão(ões) importada(s). Senhas não são transferidas.'))
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                self.show_error('Não foi possível importar: ' + str(exc))
+
+        dialog.open(self, None, opened)
+
+    def open_diagnostics(self, *_):
+        self.toast.add_toast(Adw.Toast(title='Coletando diagnóstico…'))
+        cfg = copy.deepcopy(self.cfg)
+        portal = self.keyboard_portal
+
+        def worker():
+            try:
+                report = collect_support_report(cfg=cfg, portal=portal)
+            except Exception as exc:
+                report = 'Não foi possível coletar o diagnóstico.\n' + str(exc)
+
+            def done():
+                if self._closing:
+                    return
+                dialog = Adw.MessageDialog(transient_for=self, modal=True,
+                    heading='Diagnóstico', body='Copie o texto abaixo para suporte. Não inclui senhas.')
+                dialog.add_response('close', 'Fechar')
+                dialog.add_response('copy', 'Copiar')
+                dialog.set_default_response('copy')
+                dialog.set_close_response('close')
+                view = Gtk.ScrolledWindow(min_content_height=220, max_content_height=360,
+                                          hscrollbar_policy=Gtk.PolicyType.NEVER)
+                label = Gtk.Label(label=report, xalign=0, yalign=0, wrap=True, selectable=True)
+                label.set_margin_top(8)
+                label.set_margin_bottom(8)
+                view.set_child(label)
+                dialog.set_extra_child(view)
+
+                def respond(_dialog, response):
+                    if response == 'copy':
+                        display = self.get_display()
+                        if display:
+                            display.get_clipboard().set(report)
+                        self.toast.add_toast(Adw.Toast(title='Diagnóstico copiado.'))
+
+                dialog.connect('response', respond)
+                dialog.present()
+            GLib.idle_add(done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def quit_application(self, *_):
+        if self._closing:
+            return
+        if self._updating or self._machine_action:
+            self.present()
+            self.toast.add_toast(Adw.Toast(title='Aguarde a operação terminar antes de sair.'))
+            return
+        if self.connection_busy():
+            self._quit_after_disconnect = True
+            self.cancel_connection()
+            self.toast.add_toast(Adw.Toast(title='Desconectando antes de sair…'))
+            return
+        self._finalize_quit()
+
+    def _finalize_quit(self):
+        if self._closing:
+            return
         self.persist()
         self._closing = True
+        if getattr(self, 'tray', None):
+            self.tray.dispose()
         self.keyboard_portal.close()
         if self._status_source:
             GLib.source_remove(self._status_source)
             self._status_source = 0
-        GLib.source_remove(self._poll)
-        return False
+        if self._poll:
+            GLib.source_remove(self._poll)
+            self._poll = 0
+        app = self.get_application()
+        if app:
+            app.quit()
+
+    def close_requested(self, *_):
+        # Keep the session and its controller available; closing the GUI hides it.
+        if self.connection_busy() or self._updating or self._machine_action:
+            self.set_visible(False)
+            if getattr(self, 'tray', None):
+                self.tray.hide_to_background()
+            return True
+        self._finalize_quit()
+        return True
 
 
 class App(Adw.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.DEFAULT_FLAGS)
+        self._window = None
+
+    def do_startup(self):
+        Adw.Application.do_startup(self)
+        for name, callback in (('show-window', self._show_window),
+                               ('disconnect-session', self._disconnect_session),
+                               ('quit', self._quit)):
+            action = Gio.SimpleAction.new(name, None)
+            action.connect('activate', callback)
+            self.add_action(action)
 
     def do_activate(self):
-        win = next(iter(self.get_windows()), None) or MainWindow(self)
-        win.present()
+        self._window = next(iter(self.get_windows()), None) or MainWindow(self)
+        self._window.present()
+
+    def _show_window(self, *_):
+        window = self._window or next(iter(self.get_windows()), None)
+        if window:
+            if getattr(window, 'tray', None):
+                window.tray.show_window()
+            else:
+                window.set_visible(True)
+                window.present()
+
+    def _disconnect_session(self, *_):
+        window = self._window or next(iter(self.get_windows()), None)
+        if window and getattr(window, 'tray', None):
+            window.tray.disconnect()
+        elif window and window.connection_busy():
+            window.cancel_connection()
+            window.present()
+
+    def _quit(self, *_):
+        window = self._window or next(iter(self.get_windows()), None)
+        if window:
+            window.quit_application()
+        else:
+            self.quit()
 
 
 if __name__ == '__main__':

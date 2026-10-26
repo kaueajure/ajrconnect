@@ -15,7 +15,7 @@ RUNTIME_FILES = ('ajr_app.py', 'ui.py', 'dialogs.py', 'keyboard.py', 'keyboard_p
                  'enable-extension.py', 'ajr-connect.desktop.in', 'install.py',
                  'rollback.py', 'check_compatibility.py')
 RUNTIME_FILES += ('dependencies.py',)
-RUNTIME_FILES += ('version.py', 'reconnect.py', 'updates.py', 'update_dialog.py', 'memory_monitor.py', 'vm_control.py', 'vm_dialog.py')
+RUNTIME_FILES += ('version.py', 'reconnect.py', 'updates.py', 'update_dialog.py', 'memory_monitor.py', 'vm_control.py', 'vm_dialog.py', 'tray.py')
 SOURCE_FILES = ('DESIGN.md', 'native/build.py', 'native/ajr.c', 'native/ajr_bar.c', 'native/ajr.h',
                 'native/ajr-freerdp.patch', 'tests/test_compatibility.py',
                 'tests/test_distribution.py')
@@ -27,6 +27,7 @@ SOURCE_FILES += ('tests/test_keyboard_portal.py', 'tests/check_portal_session.py
 SOURCE_FILES += ('tests/test_updates.py', 'tests/test_reconnect.py')
 SOURCE_FILES += ('tests/test_display.py', 'tests/test_memory_monitor.py')
 SOURCE_FILES += ('tests/test_vm_control.py',)
+SOURCE_FILES += ('tests/test_features_pack.py',)
 SOURCE_TREES = ('native/vendor/FreeRDP-2.11.5/client/X11',
                 'native/vendor/FreeRDP-2.11.5/resources',
                 'native/sdk/usr/include/freerdp2', 'native/sdk/usr/include/winpr2')
