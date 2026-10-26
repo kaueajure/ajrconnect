@@ -58,7 +58,7 @@ class DisplayTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'reservado'):
             core.build_command(cfg, MONITOR)
 
-    def test_actual_freerdp_parser_preserves_visuals_without_enabling_gfx(self):
+    def test_actual_freerdp_parser_preserves_visuals_with_rfx_gfx(self):
         try:
             rdp = ctypes.CDLL('libfreerdp2.so.2')
             client = ctypes.CDLL('libfreerdp-client2.so.2')
@@ -83,10 +83,12 @@ class DisplayTests(unittest.TestCase):
                 self.assertEqual(client.freerdp_client_settings_parse_command_line_arguments(
                     settings, len(command), argv, 0), 0)
                 for name, key, expected in [('wallpaper', 962, False), ('themes', 965, False),
-                    ('fonts', 961, True), ('composition', 968, False), ('gfx', 142, False),
-                    ('rfx', 3649, False), ('menu', 964, quality != 1), ('drag', 963, quality == 2)]:
+                    ('fonts', 961, True), ('composition', 968, False), ('gfx', 142, True),
+                    ('rfx', 3649, True), ('menu', 964, quality != 1), ('drag', 963, quality == 2)]:
                     with self.subTest(quality=quality, setting=name):
                         self.assertEqual(bool(rdp.freerdp_settings_get_bool(settings, key)), expected)
+                self.assertIn('/gfx:rfx', command)
+                self.assertIn('/gdi:sw', command)
                 self.assertEqual(rdp.freerdp_settings_get_uint32(settings, 131), 32)
                 self.assertEqual(rdp.freerdp_settings_get_uint32(settings, 129), 3840)
                 self.assertEqual(rdp.freerdp_settings_get_uint32(settings, 130), 2160)

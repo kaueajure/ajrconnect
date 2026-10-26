@@ -3,9 +3,10 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.11**. Inclui a interface V2, atualização pelo
+Versão de teste: **6.0.0-beta.12**. Inclui a interface V2, atualização pelo
 aplicativo, reconexão automática, conexões salvas, seleção de pastas,
-atalhos personalizáveis e atualização da AJR Bar na sessão atual.
+atalhos personalizáveis, atualização da AJR Bar na sessão atual e correção
+do cast roxo via `/gfx:rfx` com `/gdi:sw`.
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
@@ -210,7 +211,7 @@ Se ela for recusada ou revogada, o aplicativo oferece **Autorizar** para repetir
 a tentativa; os controles da barra continuam disponíveis.
 
 O cliente preserva o compartilhamento de pastas e usa renderização por software,
-sem ativar `/gfx`, `/gdi:hw` ou a floatbar visual nativa do FreeRDP.
+com `/gfx:rfx` e `/gdi:sw`, sem `/gdi:hw` nem a floatbar visual nativa do FreeRDP.
 Reconecte depois de alterar resolução ou escala dos monitores.
 
 ### Resolução e aparência do Windows
@@ -226,7 +227,7 @@ suavização de fontes e desativam a composição adicional do desktop solicitad
 pelo perfil anterior. **Mais qualidade** permite animações e arrastar a janela
 com conteúdo; **Equilibrada** desativa animações; **Mais leve** também desativa
 arrastar com conteúdo. Para reduzir a quantidade de pixels transmitidos, escolha
-uma resolução menor. O cliente continua usando `/gdi:sw`, sem ativar GFX.
+uma resolução menor. O cliente continua usando `/gdi:sw` com `/gfx:rfx`.
 
 ### Alerta de RAM da VM
 

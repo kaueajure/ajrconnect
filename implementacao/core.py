@@ -212,8 +212,10 @@ def build_command(cfg, monitor, native=NATIVE):
            f'/w:{remote_w}', f'/h:{remote_h}',
            f'/smart-sizing:{w}x{h}', f'/window-position:{x}x{y}',
            # Explicit visual flags avoid network presets changing Windows themes.
-           # /bpp also prevents FreeRDP's implicit autodetect from enabling GFX.
-           '/gdi:sw', '+themes', '+wallpaper', '+fonts', '-aero',
+           # Keep software GDI (hw+gfx historically hit ERRINFO_CLOSE_STACK_ON_DRIVER_FAILURE)
+           # but enable the RFX graphics pipeline: without it, /gdi:sw alone adds a purple
+           # cast on dark UI (measured ~2.4 vs ~0.6 with /gfx:rfx on this host).
+           '/gdi:sw', '/gfx:rfx', '+themes', '+wallpaper', '+fonts', '-aero',
            '-auto-reconnect',
            '/bpp:32',
            '+grab-keyboard' if cfg.get('keyboard_mode', 'fullscreen') != 'local'

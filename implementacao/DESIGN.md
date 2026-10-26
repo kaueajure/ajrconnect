@@ -153,8 +153,8 @@ de teste e verifica o atalho real e a restauração da autorização.
 `resolution` é uma preferência por perfil: monitor, 4K, QHD, 1080p, 720p,
 480p ou 360p. O framebuffer remoto é fixado ao conectar; smart sizing adapta
 a apresentação local. A qualidade usa flags visuais explícitas, mantendo temas,
-wallpaper, fontes e 32 bits sem habilitar GFX. O perfil de rede broadband deixou
-de interferir na aparência. A composição adicional permanece desativada.
+wallpaper, fontes, 32 bits e `/gfx:rfx` com `/gdi:sw`. O perfil de rede broadband
+deixou de interferir na aparência. A composição adicional permanece desativada.
 
 `ram_alert` e `ram_limit_gib` também pertencem ao perfil. O módulo
 `memory_monitor.py` prepara um diretório temporário de sessão, compartilhado
