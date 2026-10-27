@@ -1,9 +1,11 @@
 """Local discovery, power command boundaries and isolated GTK actions; no live VM."""
 import copy
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+import socket
 import sys
 import tempfile
 import unittest
@@ -15,6 +17,67 @@ import vm_control as vm
 
 
 class MachineTests(unittest.TestCase):
+    def test_socket_symlink_is_detected_and_not_listed_twice(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            target = home / 'engine.sock'
+            linked = home / '.docker/desktop/docker.sock'
+            linked.parent.mkdir(parents=True)
+            with socket.socket(socket.AF_UNIX) as server:
+                server.bind(str(target))
+                linked.symlink_to(target)
+                self.assertTrue(vm.is_socket(linked))
+                with patch.object(vm.Path, 'home', return_value=home), \
+                        patch.dict(os.environ, {'DOCKER_HOST': 'unix://' + str(target)}, clear=True):
+                    candidates = vm.docker_socket_candidates('docker-user')
+                self.assertEqual(candidates, [target])
+
+    def test_selected_local_context_discovers_stopped_windows(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / 'client-config'
+            context = 'local-windows'
+            digest = hashlib.sha256(context.encode()).hexdigest()
+            metadata = config / 'contexts/meta' / digest / 'meta.json'
+            metadata.parent.mkdir(parents=True)
+            (config / 'config.json').write_text(json.dumps({'currentContext': context}))
+            target = home / 'custom-engine.sock'
+            metadata.write_text(json.dumps({'Endpoints': {'docker': {'Host': 'unix://' + str(target)}}}))
+            with socket.socket(socket.AF_UNIX) as server:
+                server.bind(str(target))
+                with patch.object(vm.Path, 'home', return_value=home), \
+                        patch.dict(os.environ, {'DOCKER_CONFIG': str(config)}, clear=True), \
+                        patch.object(vm, 'find_tool', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
+                        patch.object(vm.subprocess, 'run', return_value=subprocess.CompletedProcess(
+                            [], 0, '{"id":"windows-id","name":"Windows","state":"exited"}', '')) as run:
+                    machines, notices, restricted = vm.discover()
+                    local = [m for m in machines if m.backend == 'docker-user']
+                    self.assertEqual([(m.name, m.state) for m in local], [('Windows', 'exited')])
+                    vm.power(local[0], 'start')
+                    args = run.call_args.args[0]
+                    self.assertEqual(args[1:3], ['--host', 'unix://' + str(target)])
+                    self.assertEqual(args[-2:], ['start', 'windows-id'])
+
+    def test_rootless_runtime_directory_is_respected(self):
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {'XDG_RUNTIME_DIR': directory}, clear=True):
+            target = Path(directory) / 'docker.sock'
+            with socket.socket(socket.AF_UNIX) as server:
+                server.bind(str(target))
+                self.assertEqual(vm.resolve_docker_socket('docker-user'), (target, 'ok'))
+
+    def test_remote_hosts_and_invalid_context_metadata_are_ignored(self):
+        for host in ('ssh://remote', 'tcp://remote:2375', 'unix://remote/docker.sock', 'unix:relative',
+                     'unix:///run/docker.sock?remote=1', 'unix:///run/docker%00.sock'):
+            with self.subTest(host=host), patch.dict(os.environ, {'DOCKER_HOST': host}, clear=True):
+                self.assertIsNone(vm.configured_docker_socket())
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.dict(os.environ, {'DOCKER_CONFIG': directory}, clear=True):
+            config = Path(directory) / 'config.json'
+            for content in ('invalid json', '[]', '{"currentContext": {"invalid": true}}'):
+                config.write_text(content)
+                self.assertIsNone(vm.configured_docker_socket())
+
     def test_discovery_includes_stopped_containers_without_exposing_configuration(self):
         payload = '\n'.join(json.dumps(dict(id=identifier, name=name, state=state))
             for identifier, name, state in [('aaa', 'Windows SQL', 'running'), ('bbb', 'Lab', 'exited')])

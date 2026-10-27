@@ -157,6 +157,11 @@ def collect_support_report(base=BASE, *, cfg=None, portal=None):
         import vm_control
         _host, status, path = vm_control.docker_host_args('docker')
         lines.append('Docker socket: ' + (str(path) if path else 'ausente') + ' (' + status + ')')
+        _host, user_status, user_path = vm_control.docker_host_args('docker-user')
+        lines.append('Docker do usuário socket: ' + str(user_path) + ' (' + user_status + ')')
+        lines.append('Docker CLI: ' + (vm_control.find_tool('docker') or 'não encontrado'))
+        configured = vm_control.configured_docker_socket()
+        lines.append('Docker endpoint local configurado: ' + (str(configured) if configured else 'nenhum'))
         lines.append('Grupo docker configurado: ' +
                      ('sim' if vm_control.docker_group_configured() else 'não'))
     except Exception as exc:

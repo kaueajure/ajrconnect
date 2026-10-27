@@ -1,6 +1,7 @@
 """Discover registered local machines; execute only explicit power actions."""
 from dataclasses import dataclass
 import grp
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -9,6 +10,7 @@ import re
 import shutil
 import stat
 import subprocess
+from urllib.parse import unquote, urlsplit
 
 BACKENDS = {
     'docker': ('Docker', 'docker', ()),
@@ -28,7 +30,7 @@ DAEMON_MARKERS = (
     'cannot connect to the docker daemon', 'is the docker daemon running',
     'no such file or directory', 'connection refused', 'error connecting',
 )
-TOOL_PATHS = ('/usr/bin', '/usr/local/bin', '/snap/bin', '/bin')
+TOOL_PATHS = ('/usr/bin', '/usr/local/bin', '/snap/bin', '/bin', '/usr/sbin', '/sbin')
 
 
 class VMError(RuntimeError):
@@ -80,9 +82,49 @@ def daemon_unavailable(detail):
 
 def is_socket(path):
     try:
-        return stat.S_ISSOCK(path.lstat().st_mode)
+        return stat.S_ISSOCK(path.stat().st_mode)
     except OSError:
         return False
+
+
+def read_docker_json(path):
+    try:
+        # Read only client metadata; never return credentials in diagnostics.
+        with path.open('rb') as stream:
+            value = json.loads(stream.read(1024 * 1024))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def configured_docker_socket():
+    """Honor the selected local context, without connecting to remote daemons."""
+    config = Path(os.environ.get('DOCKER_CONFIG') or Path.home() / '.docker')
+    context = os.environ.get('DOCKER_CONTEXT')
+    host = os.environ.get('DOCKER_HOST')
+    if not context and not host:
+        context = read_docker_json(config / 'config.json').get('currentContext')
+    if context and context != 'default':
+        if not isinstance(context, str):
+            return None
+        digest = hashlib.sha256(context.encode()).hexdigest()
+        metadata = read_docker_json(config / 'contexts/meta' / digest / 'meta.json')
+        endpoints = metadata.get('Endpoints', {})
+        docker = endpoints.get('docker', {}) if isinstance(endpoints, dict) else {}
+        host = docker.get('Host') if isinstance(docker, dict) else None
+    elif context == 'default':
+        host = None
+    if not isinstance(host, str):
+        return None
+    try:
+        url = urlsplit(host)
+        path = unquote(url.path)
+    except ValueError:
+        return None
+    if url.scheme != 'unix' or url.netloc or url.query or url.fragment \
+            or not path.startswith('/') or any(ord(c) < 32 for c in path):
+        return None
+    return Path(path)
 
 
 def docker_socket_candidates(backend):
@@ -94,14 +136,25 @@ def docker_socket_candidates(backend):
         home / '.docker' / 'desktop' / 'docker.sock',
         home / '.docker' / 'run' / 'docker.sock',
     )
+    runtime = os.environ.get('XDG_RUNTIME_DIR', '')
+    if runtime and Path(runtime).is_absolute():
+        user = (Path(runtime) / 'docker.sock',) + user
     # Keep backends disjoint: system docker must not also appear as "docker-user".
     ordered = user if backend == 'docker-user' else system + (
         home / '.docker' / 'desktop' / 'docker.sock',
         home / '.docker' / 'run' / 'docker.sock',
     )
+    configured = configured_docker_socket()
+    if configured is not None:
+        user_roots = (home, Path(f'/run/user/{uid}'))
+        if runtime and Path(runtime).is_absolute():
+            user_roots += (Path(runtime),)
+        user_socket = any(configured.is_relative_to(root) for root in user_roots)
+        if (backend == 'docker-user') == user_socket:
+            ordered = (configured,) + ordered
     seen, result = set(), []
     for path in ordered:
-        key = str(path)
+        key = os.path.realpath(path)
         if key in seen:
             continue
         seen.add(key)

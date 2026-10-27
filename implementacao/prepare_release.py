@@ -28,16 +28,18 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — correção da instalação
+    return f'''# AJR Connect {TAG.removeprefix('v')} — detecção local do Docker
 
 ## Mudanças
 
-- Corrige a abertura do aplicativo após instalar ou atualizar: o instalador
-  agora copia `check_compatibility.py` e `tray.py` automaticamente.
-- A verificação do pacote exige também o módulo de compatibilidade.
-- Testes carregam o aplicativo instalado em um processo isolado, sem acesso
-  aos fontes, incluindo instalação sobre uma versão incompleta.
-- Configurações existentes são preservadas.
+- Detecta sockets do Docker que são links simbólicos e evita caminhos duplicados.
+- Consulta o contexto local selecionado e o endpoint Unix configurado no Docker.
+- Respeita o diretório de execução configurado para Docker sem root.
+- Amplia a busca de ferramentas para diretórios administrativos do sistema.
+- Diagnóstico no aplicativo mostra o cliente Docker, os sockets do sistema e do
+  usuário e o endpoint local configurado.
+- Mantém a busca restrita a máquinas locais, sem usar contextos remotos.
+- Preserva a correção dos módulos ausentes na instalação da beta 17.
 
 ## Instalar ou atualizar
 
@@ -51,12 +53,15 @@ repara os arquivos automaticamente. Não é necessário copiar módulos manualme
 
 - Instalação nova, atualização de instalação incompleta e rollback em diretórios isolados.
 - Importação da interface usando somente os arquivos instalados.
+- Testes de descoberta Docker, contexto local, sockets por link, diretório
+  rootless, controle das máquinas, diagnósticos e rejeição de endpoints remotos.
 - Verificação de compatibilidade, atualização e recuperação de falhas.
 - Pacotes Linux e fontes com SHA256.
 
 Limitação conhecida: o teste gráfico de atualização falha na mensagem de
 cancelamento do download; a instalação e a recuperação passaram nos testes.
 A instalação em um Zorin recém-instalado ainda precisa ser validada.
+As correções de detecção ainda precisam ser confirmadas nos PCs afetados.
 
 Versão de teste para Linux x86_64 com FreeRDP/WinPR 2.11.5.
 '''
