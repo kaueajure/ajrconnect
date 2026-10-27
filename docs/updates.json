@@ -1,5 +1,24 @@
 [
   {
+    "tag_name": "v6.0.0-beta.17",
+    "prerelease": true,
+    "draft": false,
+    "assets": [
+      {
+        "name": "ajr-connect-6-linux-x86_64.tar.gz",
+        "size": 171682,
+        "state": "uploaded",
+        "digest": "sha256:ee841c2783adf57fd406842d35dab32d8fd6987b1372f6357894606ce06d7390"
+      },
+      {
+        "name": "SHA256SUMS",
+        "size": 195,
+        "state": "uploaded",
+        "digest": "sha256:b0ccd700b365024aa8a02dc135065b5ce7a693112a65a5ee40e481a83eab3e6e"
+      }
+    ]
+  },
+  {
     "tag_name": "v6.0.0-beta.16",
     "prerelease": true,
     "draft": false,

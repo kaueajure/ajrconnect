@@ -8,7 +8,7 @@ Cliente RDP para Linux, sem bloqueio por distribuição ou tipo de sessão.
 
 ## Instalar a versão de teste
 
-Versão atual: **6.0.0-beta.16**.
+Versão atual: **6.0.0-beta.17**.
 
 No terminal da sessão gráfica, execute:
 
@@ -41,7 +41,7 @@ Em versões com atualização integrada, abra **Mais opções → Atualizações
 ative **Incluir versões de teste**, verifique e instale a nova versão.
 
 [Código-fonte e instruções](https://github.com/kaueajure/ajrconnect) ·
-[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.16)
+[Versão de teste](https://github.com/kaueajure/ajrconnect/releases/tag/v6.0.0-beta.17)
 
 Apache 2.0. A validação em um Zorin recém-instalado ainda está pendente.
 

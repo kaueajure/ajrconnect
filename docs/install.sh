@@ -36,9 +36,9 @@ ajr_apt() {
 ajr_main() {
     set -euo pipefail
     local mode="${1:-}" tool
-    local version='v6.0.0-beta.16'
+    local version='v6.0.0-beta.17'
     local asset='ajr-connect-6-linux-x86_64.tar.gz'
-    local expected='c80040d4b837bbf7a9051b3389a789377eec23db48e827ec752a955727086efc'
+    local expected='ee841c2783adf57fd406842d35dab32d8fd6987b1372f6357894606ce06d7390'
     local base_url="https://github.com/kaueajure/ajrconnect/releases/download/$version"
 
     case "$mode" in
