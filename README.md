@@ -3,7 +3,7 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.16**. Inclui a interface V2, Sair completo,
+Versão de teste: **6.0.0-beta.17**. Inclui a interface V2, Sair completo,
 notificação em segundo plano, indicador de rede, presets Casa/4K/Lab,
 exportar/importar conexões, diagnóstico, canal estável/teste, atualização
 pelo app (GitHub Pages), reconexão automática, AJR Bar, correção do cast

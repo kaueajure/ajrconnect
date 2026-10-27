@@ -28,33 +28,37 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — sair, rede, presets e diagnóstico
+    return f'''# AJR Connect {TAG.removeprefix('v')} — correção da instalação
 
 ## Mudanças
 
-- Menu **Sair** encerra o aplicativo de verdade (desconecta antes, se preciso).
-- Com sessão ativa, o X esconde a janela e a notificação do sistema oferece
-  Mostrar / Desconectar / Sair.
-- Indicador de rede (RTT e quedas) no status e na AJR Bar.
-- Perfis de qualidade **Casa / 4K / Lab**.
-- Exportar e importar conexões (JSON sem senhas).
-- Diagnóstico copiável para suporte.
-- Canal de atualização **Estável** ou **Versões de teste**.
+- Corrige a abertura do aplicativo após instalar ou atualizar: o instalador
+  agora copia `check_compatibility.py` e `tray.py` automaticamente.
+- A verificação do pacote exige também o módulo de compatibilidade.
+- Testes carregam o aplicativo instalado em um processo isolado, sem acesso
+  aos fontes, incluindo instalação sobre uma versão incompleta.
+- Configurações existentes são preservadas.
 
-## Atualizar
-
-Desconecte o Windows antes de instalar. Execute no terminal Linux, sem sudo:
+## Instalar ou atualizar
 
 {download_commands(repository)}
-Também é possível atualizar em **Mais opções → Atualizações** com o canal
-**Versões de teste**. Reabra o aplicativo depois de instalar.
+Se o aplicativo ainda abre, também é possível atualizar em
+**Mais opções → Atualizações**, no canal **Versões de teste**.
+Se a versão anterior não abre por falta de módulo, o instalador desta versão
+repara os arquivos automaticamente. Não é necessário copiar módulos manualmente.
 
 ## Validação
 
-- Testes do pacote de features e de display/updates na árvore atual.
+- Instalação nova, atualização de instalação incompleta e rollback em diretórios isolados.
+- Importação da interface usando somente os arquivos instalados.
+- Verificação de compatibilidade, atualização e recuperação de falhas.
 - Pacotes Linux e fontes com SHA256.
 
-A versão é de teste, Linux x86_64 com FreeRDP/WinPR 2.11.5.
+Limitação conhecida: o teste gráfico de atualização falha na mensagem de
+cancelamento do download; a instalação e a recuperação passaram nos testes.
+A instalação em um Zorin recém-instalado ainda precisa ser validada.
+
+Versão de teste para Linux x86_64 com FreeRDP/WinPR 2.11.5.
 '''
 
 

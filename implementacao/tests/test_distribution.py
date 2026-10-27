@@ -41,6 +41,9 @@ old_desktop = b'[Desktop Entry]\\nType=Application\\nName=Previous AJR\\nExec=/b
 if sys.argv[2] == 'existing':
     desktop.parent.mkdir(parents=True)
     desktop.write_bytes(old_desktop)
+    # Reproduce an installation whose launcher imports a missing runtime module.
+    install.APP.mkdir(parents=True)
+    (install.APP / 'ajr_app.py').write_text('from check_compatibility import collect_support_report')
 if sys.argv[2] == 'non-gnome':
     install.EXT.mkdir(parents=True)
     (install.EXT / 'sentinel').write_text('existing extension')
@@ -48,6 +51,7 @@ if sys.argv[2] == 'non-gnome':
     autostart.parent.mkdir(parents=True)
     autostart.write_text('existing autostart')
     install.lookup_settings = lambda Gio, schema: None
+run_process = subprocess.run
 with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GNOME Shell 46.0', '')) as commands:
     assert install.install_files() == 0
     assert cfg.read_bytes() == original
@@ -79,6 +83,18 @@ with patch('subprocess.run', return_value=subprocess.CompletedProcess([], 0, 'GN
     assert Gio.DesktopAppInfo.new_from_filename(str(desktop)) is not None
     if (Path(sys.argv[1]) / 'licenses').is_dir():
         assert (install.APP / 'licenses/Apache-2.0.txt').is_file()
+    # A separate interpreter must load the installed app without access to sources.
+    probe = """import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from ajr_app import App
+import check_compatibility, tray
+for module in ('ajr_app', 'check_compatibility', 'tray'):
+    assert Path(sys.modules[module].__file__).parent == Path(sys.argv[1])
+"""
+    result = run_process([sys.executable, '-I', '-c', probe, str(install.APP)],
+                         cwd=home, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stdout + result.stderr
     runpy.run_path(str(Path(sys.argv[1]) / 'rollback.py'))
 assert cfg.read_bytes() == original
 assert not (home / '.local/bin/ajr-connect').exists()
