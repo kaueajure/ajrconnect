@@ -203,7 +203,8 @@ class MachineTests(unittest.TestCase):
                     self.assertNotIn('destroy', arguments)
                     self.assertNotIn('poweroff', arguments)
                     if action == 'stop' and backend in ('docker', 'docker-user', 'podman'):
-                        self.assertEqual(arguments, ['stop', '--timeout', '120', 'target-id'])
+                        self.assertEqual(arguments,
+                                         ['stop', '--timeout', str(vm.CONTAINER_STOP_TIMEOUT), 'target-id'])
                     if action == 'stop' and backend.startswith('libvirt'):
                         self.assertEqual(arguments[0], 'shutdown')
                     if action == 'stop' and backend == 'virtualbox':
@@ -289,9 +290,11 @@ with patch.object(gui,'secret',return_value=''), patch.object(gui,'detect_monito
     win=gui.MainWindow(app); win.present(); win.open_machines()
     window=win._machine_window
     drain(lambda: not window.busy)
-    assert window.selection.get_selected()==Gtk.INVALID_LIST_POSITION
-    assert not window.start.get_sensitive() and not window.stop.get_sensitive()
-    window.selection.set_selected(0); window.bind()
+    # Discovery auto-selects the first machine so the ComboRow is usable.
+    assert window.selection.get_selected()==0
+    assert window.selected_machine()==machines[0]
+    assert window.link.get_sensitive() and not window.start.get_sensitive() and not window.stop.get_sensitive()
+    window.bind()
     assert win.cfg['vm_id']=='first-id' and window.start.get_sensitive()
     window.request_power('start'); drain(lambda: not window.busy)
     power.assert_called_once_with(machines[0],'start',elevated=False,memory_gib=None)
@@ -305,7 +308,7 @@ with patch.object(gui,'secret',return_value=''), patch.object(gui,'detect_monito
     dialog=next(w for w in Gtk.Window.get_toplevels() if isinstance(w,gui.Adw.MessageDialog) and w.get_visible() and w.get_heading()=='Desligar esta máquina?')
     with patch.object(win,'connection_busy',return_value=True), patch.object(win,'cancel_connection') as cancel:
         dialog.response('stop'); drain(lambda: not window.busy)
-        cancel.assert_called_once()
+        cancel.assert_called_once_with(force=True)
     power.assert_called_once_with(machines[1],'stop',elevated=False,memory_gib=None)
     window.remove_binding(); assert not win.cfg['vm_id'] and not window.stop.get_sensitive()
     window.close(); drain(); assert win._machine_window is None

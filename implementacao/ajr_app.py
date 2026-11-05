@@ -876,7 +876,7 @@ class MainWindow(Adw.ApplicationWindow):
             f'Tentativa {self._retry_plan.attempts} de {len(self._retry_plan.delays)}. '
             'Você pode cancelar e conectar manualmente.')
 
-    def cancel_connection(self):
+    def cancel_connection(self, *, force=False):
         self._manual_disconnect = True
         if self._retry_plan:
             self._retry_plan.cancel()
@@ -886,7 +886,24 @@ class MainWindow(Adw.ApplicationWindow):
         self._connection_cancel.set()
         self._connection_generation += 1
         if self.proc:
-            self.control('disconnect')
+            # Soft disconnect can hang while the guest is powering off; force-kill then.
+            if force or not self._started or self._reconnecting:
+                try:
+                    self.proc.terminate()
+                except OSError:
+                    pass
+            else:
+                self.control('disconnect')
+                # If FreeRDP ignores soft disconnect (common when the VM dies), kill soon.
+                proc = self.proc
+                def force_kill():
+                    if self.proc is proc:
+                        try:
+                            self.proc.terminate()
+                        except OSError:
+                            pass
+                    return GLib.SOURCE_REMOVE
+                GLib.timeout_add(2500, force_kill)
         else:
             self.finish_connection(status='Reconexão cancelada' if self._reconnecting else 'Conexão cancelada')
 

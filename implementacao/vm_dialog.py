@@ -1,5 +1,6 @@
 """Local machine selection and power controls, with automatic system authorization."""
 import threading
+import time
 import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
@@ -70,14 +71,29 @@ class MachineWindow(Adw.Window):
 
     def selected_machine(self):
         index = self.selection.get_selected()
-        return self.machines[index] if index < len(self.machines) else None
+        if index == Gtk.INVALID_LIST_POSITION or not 0 <= index < len(self.machines):
+            return None
+        return self.machines[index]
 
     def is_bound(self, machine):
         return machine is not None and machine.binding == \
             (self.owner.cfg['vm_backend'], self.owner.cfg['vm_id'], self.owner.cfg.get('vm_host', ''))
 
+    def select_machine_index(self, index):
+        """Apply selection after the model is ready; prefer a real item over 'none'."""
+        if not self.machines:
+            self.selection.set_selected(Gtk.INVALID_LIST_POSITION)
+            return
+        if index == Gtk.INVALID_LIST_POSITION or not 0 <= index < len(self.machines):
+            index = 0
+        self.selection.set_selected(index)
+
     def update_controls(self):
         machine = self.selected_machine()
+        # If the list has machines but ComboRow stayed unselected, pick the first.
+        if self.machines and machine is None and not self.busy:
+            self.select_machine_index(0)
+            machine = self.selected_machine()
         bound = self.is_bound(machine)
         self.selection.set_sensitive(not self.busy and bool(self.machines))
         self.link.set_sensitive(not self.busy and machine is not None and not bound)
@@ -100,19 +116,36 @@ class MachineWindow(Adw.Window):
         self.spinner.set_visible(self.busy)
         self.spinner.set_spinning(self.busy)
 
-    def work(self, callback, complete, message):
+    def work(self, callback, complete, message, *, progress=False):
         if self.busy:
             return
         self.busy = True
         self.message.set_text(message)
         self.update_controls()
+        started = time.monotonic()
+        progress_source = 0
+
+        def tick():
+            if not self.busy or self.closed:
+                return GLib.SOURCE_REMOVE
+            elapsed = int(time.monotonic() - started)
+            self.message.set_text(f'{message} ({elapsed}s)')
+            return GLib.SOURCE_CONTINUE
+
+        if progress:
+            progress_source = GLib.timeout_add(1000, tick)
+
         def worker():
             try:
                 result, error = callback(), None
             except Exception as exc:
                 result, error = None, exc
             def finish():
+                if progress_source:
+                    GLib.source_remove(progress_source)
                 if self.closed:
+                    self.busy = False
+                    self.owner._machine_action = False
                     return GLib.SOURCE_REMOVE
                 self.busy = False
                 complete(result, error)
@@ -127,10 +160,10 @@ class MachineWindow(Adw.Window):
                 self.message.set_text(str(error))
                 return
             self.machines, notices, self.restricted = result
-            self.selection.set_model(Gtk.StringList.new([machine.label for machine in self.machines]))
-            index = next((i for i, machine in enumerate(self.machines) if self.is_bound(machine)),
-                         Gtk.INVALID_LIST_POSITION)
-            self.selection.set_selected(index)
+            labels = [machine.label for machine in self.machines] or ['Nenhuma máquina']
+            self.selection.set_model(Gtk.StringList.new(labels))
+            index = next((i for i, machine in enumerate(self.machines) if self.is_bound(machine)), 0)
+            self.select_machine_index(index if self.machines else Gtk.INVALID_LIST_POSITION)
             pending = [backend for backend in self.restricted if backend not in self.elevate_attempted]
             if pending:
                 self.elevate_attempted.update(pending)
@@ -197,8 +230,9 @@ class MachineWindow(Adw.Window):
             self.execute(machine, action)
             return
         container = machine.backend.startswith('docker') or machine.backend == 'podman'
+        grace = vm_control.CONTAINER_STOP_TIMEOUT
         body = (f'O contêiner “{machine.name}” será parado. Salve seus arquivos. '
-                'O gerenciador aguardará até 120 segundos antes de forçar a parada.') if container else \
+                f'O gerenciador aguarda até {grace}s o Windows desligar e depois força a parada.') if container else \
                (f'Será solicitado o desligamento de “{machine.name}” ao sistema convidado. Salve seus arquivos.')
         body += ' A sessão AJR será desconectada e a reconexão automática será cancelada.'
         dialog = Adw.MessageDialog(transient_for=self, modal=True,
@@ -212,13 +246,29 @@ class MachineWindow(Adw.Window):
                        self.execute(machine, action) if response == 'stop' else None)
         dialog.present()
 
+    def mark_stopped(self, machine):
+        """Update local state so the UI unlocks without waiting on a full rediscovery."""
+        stopped = {
+            'docker': 'exited', 'docker-user': 'exited', 'podman': 'exited',
+            'libvirt': 'shut off', 'libvirt-user': 'shut off', 'virtualbox': 'stopped',
+        }
+        new_state = stopped.get(machine.backend, 'exited')
+        self.machines = [
+            vm_control.Machine(
+                item.backend, item.identifier, item.name,
+                new_state if item.binding == machine.binding else item.state,
+                endpoint=item.endpoint, context=item.context)
+            for item in self.machines
+        ]
+
     def execute(self, machine, action, *, elevated=None):
         if self.busy or self.closed or not self.is_bound(machine) or self.owner._updating:
             return
         if elevated is None:
             elevated = machine.backend in self.authorized
         if action == 'stop' and self.owner.connection_busy():
-            self.owner.cancel_connection()
+            # Soft RDP disconnect hangs while the guest dies; force-close the session.
+            self.owner.cancel_connection(force=True)
         self.owner._machine_action = True
 
         def complete(_result, error):
@@ -230,13 +280,21 @@ class MachineWindow(Adw.Window):
                 self.execute(machine, action, elevated=True)
             elif error:
                 self.message.set_text(str(error))
+            elif action == 'start':
+                self.scan('Inicialização solicitada. Aguarde o Windows iniciar antes de conectar.')
             else:
-                self.scan('Inicialização solicitada. Aguarde o Windows iniciar antes de conectar.' if action == 'start' else
-                          'Desligamento solicitado. Atualize a busca para conferir o estado da máquina.')
+                self.mark_stopped(machine)
+                self.message.set_text(
+                    'Desligamento solicitado. O estado foi atualizado; use “Buscar máquinas” se precisar conferir de novo.')
 
         memory_gib = self.owner.cfg['ram_limit_gib'] if action == 'start' and self.owner.cfg.get('ram_alert') else None
+        waiting = (action == 'stop' and
+                   (machine.backend.startswith('docker') or machine.backend == 'podman'))
+        label = 'Ligando a máquina…' if action == 'start' else (
+            f'Aguardando o Windows desligar (até {vm_control.CONTAINER_STOP_TIMEOUT}s)…' if waiting
+            else 'Solicitando desligamento…')
         self.work(lambda: vm_control.power(machine, action, elevated=elevated, memory_gib=memory_gib), complete,
-                  'Ligando a máquina…' if action == 'start' else 'Desligando a máquina…')
+                  label, progress=waiting)
 
     def close_requested(self, *_):
         if self.owner._machine_action:

@@ -28,19 +28,18 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — atualização obrigatória
+    return f'''# AJR Connect {TAG.removeprefix('v')} — máquinas e desligamento
 
 ## Mudanças
 
-- Quando há versão nova no canal escolhido, o aplicativo instalado bloqueia
-  conexão e demais ações até atualizar; só **Atualizar** e **Sair** ficam
-  disponíveis.
-- O botão principal passa a **Atualizar para continuar** e a janela de
-  atualizações abre automaticamente.
-- Sessões ativas são desconectadas para permitir baixar e instalar a versão.
-- Após instalar, o botão pede **Reiniciar aplicativo**.
-- Mantém VMs remotas via contexto Docker, resolução 1:1 no Linux e teto de RAM
-  da VM no hipervisor da beta 19.
+- Após buscar máquinas, a primeira encontrada é selecionada automaticamente
+  no campo **Máquina encontrada** (corrige lista vazia com “1 máquina
+  encontrada”).
+- **Desligar Windows** não fica carregando sem fim: espera do Docker/Podman
+  reduzida, contador na tela, sessão RDP forçada a fechar e estado da máquina
+  atualizado na hora.
+- Mantém atualização obrigatória, VMs remotas via Docker, resolução 1:1 e
+  teto de RAM no hipervisor.
 
 ## Instalar ou atualizar
 
@@ -50,8 +49,7 @@ Se o aplicativo ainda abre, também é possível atualizar em
 
 ## Validação
 
-- Testes do bloqueio obrigatório de atualização, download/cancelamento e
-  reinício.
+- Testes de comando de power (timeout de parada) e seleção automática na UI.
 - Pacotes Linux e fontes com SHA256.
 
 Limitação conhecida: testes gráficos isolados exigem Xvfb neste ambiente.

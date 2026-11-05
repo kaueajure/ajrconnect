@@ -32,6 +32,10 @@ DAEMON_MARKERS = (
 )
 TOOL_PATHS = ('/usr/bin', '/usr/local/bin', '/snap/bin', '/bin', '/usr/sbin', '/sbin')
 REMOTE_DOCKER_SCHEMES = frozenset(('ssh', 'tcp', 'http', 'https'))
+# Grace period before Docker/Podman force-stop. Windows guests often ignore SIGTERM;
+# a long wait makes the UI look stuck. Keep short; docker still SIGKILLs after this.
+CONTAINER_STOP_TIMEOUT = 30
+POWER_TIMEOUT = 60
 
 
 class VMError(RuntimeError):
@@ -742,7 +746,7 @@ def power(machine, action, *, elevated=False, memory_gib=None):
         set_memory_limit(machine, memory_gib, elevated=elevated)
     if machine.backend.startswith('docker') or machine.backend == 'podman':
         arguments = ['start', machine.identifier] if action == 'start' else \
-                    ['stop', '--timeout', '120', machine.identifier]
+                    ['stop', '--timeout', str(CONTAINER_STOP_TIMEOUT), machine.identifier]
     elif machine.backend.startswith('libvirt'):
         arguments = ['start' if action == 'start' else 'shutdown', '--domain', machine.identifier]
     elif machine.backend == 'virtualbox':
@@ -750,4 +754,6 @@ def power(machine, action, *, elevated=False, memory_gib=None):
                     ['controlvm', machine.identifier, 'acpipowerbutton']
     else:
         raise VMError('Gerenciador de máquinas não reconhecido.')
-    return run(machine.backend, arguments, elevated=elevated, timeout=180, endpoint=endpoint)
+    # Container stop waits the grace period; ACPI backends return quickly.
+    timeout = POWER_TIMEOUT if action == 'stop' else 180
+    return run(machine.backend, arguments, elevated=elevated, timeout=timeout, endpoint=endpoint)
