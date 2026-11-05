@@ -113,12 +113,12 @@ class DesktopView:
         self.theme_button = Gtk.Button(tooltip_text='Alternar tema claro e escuro')
         self.theme_button.connect('clicked', self.toggle_theme)
         header.pack_end(self.theme_button)
-        machines = Gtk.Button(icon_name='computer-symbolic', tooltip_text='Máquinas deste computador: ligar e desligar Windows')
+        machines = Gtk.Button(icon_name='computer-symbolic', tooltip_text='Máquinas e VMs: ligar e desligar Windows')
         machines.connect('clicked', w.open_machines)
         header.pack_end(machines)
         menu = Gio.Menu()
         for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
-                                       ('machines', 'Máquinas deste computador', w.open_machines),
+                                       ('machines', 'Máquinas e VMs', w.open_machines),
                                        ('memory', 'RAM da VM', w.open_memory_monitor),
                                        ('updates', 'Atualizações', w.open_updates),
                                        ('export', 'Exportar conexões…', w.export_connections),
@@ -475,8 +475,9 @@ class DesktopView:
         refresh.connect('clicked', lambda *_: w.refresh_monitors())
         w.monitor.add_suffix(refresh)
         display.add(w.monitor)
-        w.resolution = Adw.ComboRow(title='Resolução do Windows',
-            subtitle='Aplicada ao conectar. A imagem se ajusta ao monitor escolhido.',
+        w.resolution = Adw.ComboRow(title='Resolução da sessão (Linux)',
+            subtitle='Define o tamanho do buffer RDP neste computador (menos pixels = menos RAM no Linux). '
+                     'A janela local usa 1:1 quando cabe no monitor; só reduz se a sessão for maior.',
             model=Gtk.StringList.new([item[1] for item in RESOLUTIONS]),
             selected=next(i for i, item in enumerate(RESOLUTIONS) if item[0] == w.cfg['resolution']))
         display.add(w.resolution)
@@ -494,26 +495,33 @@ class DesktopView:
         w.quality.connect('notify::selected', w.quality_preset_changed)
         display.add(w.quality)
         memory = Adw.PreferencesGroup(title='Memória da VM',
-            description='Avisa sobre a RAM usada dentro do Windows. Não altera a RAM reservada pelo hipervisor.')
+            description='Define o teto de RAM no hipervisor (Docker, Podman, libvirt ou VirtualBox) '
+                        'da máquina vinculada em Máquinas e VMs. Não usa coletor dentro do Windows.')
         box.append(memory)
-        w.ram_alert = Adw.SwitchRow(title='Avisar ao ultrapassar o limite',
-            subtitle='Requer iniciar o coletor no Windows em Mais opções → RAM da VM.',
+        w.ram_alert = Adw.SwitchRow(title='Limitar RAM da VM',
+            subtitle='Aplica o teto na VM vinculada ao ligar e ao conectar. Exige vínculo em Máquinas e VMs.',
             active=w.cfg['ram_alert'])
         memory.add(w.ram_alert)
         w.ram_limit = Gtk.SpinButton(adjustment=Gtk.Adjustment(value=w.cfg['ram_limit_gib'],
             lower=.25, upper=65536, step_increment=.25, page_increment=1), digits=2,
             valign=Gtk.Align.CENTER, numeric=True)
-        w.ram_limit.update_property([Gtk.AccessibleProperty.LABEL], ['Limite de alerta em GiB'])
-        limit = Adw.ActionRow(title='Limite de alerta (GiB)',
-            subtitle='Ao exceder: continuar usando ou desconectar a sessão.')
+        w.ram_limit.update_property([Gtk.AccessibleProperty.LABEL], ['Limite de RAM da VM em GiB'])
+        limit = Adw.ActionRow(title='Teto da VM (GiB)',
+            subtitle='Memória máxima no Docker/libvirt/VirtualBox. O convidado não passa desse valor.')
         limit.add_suffix(w.ram_limit)
         memory.add(limit)
         w.ram_limit.set_sensitive(w.cfg['ram_alert'])
         w.ram_alert.connect('notify::active', lambda row, *_: w.ram_limit.set_sensitive(row.get_active()))
-        w.ram_status = Adw.ActionRow(title='Uso da RAM do Windows',
-            subtitle='Inicie o coletor após conectar.' if w.cfg['ram_alert'] else 'Monitoramento desativado.')
+        w.ram_status = Adw.ActionRow(title='RAM da VM no hipervisor',
+            subtitle='Vincule uma máquina e ative o limite.' if w.cfg['ram_alert'] else 'Limite desativado.')
         w.ram_alert.connect('notify::active', lambda row, *_: w.ram_status.set_subtitle(
-            'Inicie o coletor após conectar.' if row.get_active() else 'Monitoramento desativado.'))
+            'Vincule uma máquina e ative o limite.' if row.get_active() else 'Limite desativado.'))
+        apply = Gtk.Button(label='Aplicar teto agora', valign=Gtk.Align.CENTER)
+        apply.connect('clicked', w.apply_vm_memory_limit)
+        apply_row = Adw.ActionRow(title='Aplicar no hipervisor',
+            subtitle='Atualiza o teto da VM vinculada sem esperar ligar ou conectar.')
+        apply_row.add_suffix(apply)
+        memory.add(apply_row)
         memory.add(w.ram_status)
         keyboard = Adw.PreferencesGroup(title='Atalhos',
             description='Ativado: Windows · Desativado: este computador')

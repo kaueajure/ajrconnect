@@ -9,7 +9,7 @@ import vm_control
 
 class MachineWindow(Adw.Window):
     def __init__(self, owner):
-        super().__init__(transient_for=owner, modal=True, title='Máquinas deste computador',
+        super().__init__(transient_for=owner, modal=True, title='Máquinas e VMs',
                          default_width=560, default_height=520)
         self.owner = owner
         self.machines, self.restricted, self.authorized = [], [], set()
@@ -25,10 +25,10 @@ class MachineWindow(Adw.Window):
         scroll.set_child(body)
         shell.set_content(scroll)
         self.set_content(shell)
-        description = Gtk.Label(label='Encontre a VM ou o contêiner que hospeda o Windows neste computador '
-            'e vincule à conexão atual. A busca só consulta gerenciadores locais (Docker, Podman, '
-            'libvirt, VirtualBox), incluindo máquinas paradas — não encontra VMs hospedadas em outro PC. '
-            'Se faltar permissão, o próprio AJR pede autorização ao Linux.',
+        description = Gtk.Label(label='Encontre a VM ou o contêiner que hospeda o Windows e vincule '
+            'à conexão atual. A busca consulta Docker, Podman, libvirt e VirtualBox neste computador '
+            '(incluindo máquinas paradas) e também contextos Docker remotos já configurados '
+            '(ssh/tcp) para VMs em outros PCs. Se faltar permissão local, o AJR pede autorização ao Linux.',
             wrap=True, xalign=0)
         body.append(description)
         self.selection = Adw.ComboRow(title='Máquina encontrada',
@@ -73,8 +73,8 @@ class MachineWindow(Adw.Window):
         return self.machines[index] if index < len(self.machines) else None
 
     def is_bound(self, machine):
-        return machine is not None and (machine.backend, machine.identifier) == \
-            (self.owner.cfg['vm_backend'], self.owner.cfg['vm_id'])
+        return machine is not None and machine.binding == \
+            (self.owner.cfg['vm_backend'], self.owner.cfg['vm_id'], self.owner.cfg.get('vm_host', ''))
 
     def update_controls(self):
         machine = self.selected_machine()
@@ -137,14 +137,15 @@ class MachineWindow(Adw.Window):
                 self.authorized.update(pending)
                 self.scan('O Linux pedirá sua senha para o AJR acessar o Docker/VM. A senha não é salva.')
                 return
-            text = f'{len(self.machines)} máquina(s) encontrada(s) neste computador. Selecione a que hospeda o Windows.' if self.machines else \
-                   'Nenhuma máquina encontrada neste computador.'
+            text = f'{len(self.machines)} máquina(s) encontrada(s). Selecione a que hospeda o Windows.' if self.machines else \
+                   'Nenhuma máquina encontrada nos gerenciadores locais nem nos contextos Docker remotos.'
             if self.restricted and not self.machines:
                 text += '\n\nA autorização foi cancelada ou negada. Use “Tentar autorização novamente”.'
             self.message.set_text('\n\n'.join(part for part in [result_message, text, *notices] if part))
-            if self.machines and any(machine.backend.startswith('docker') for machine in self.machines):
+            if self.machines and any(machine.backend.startswith('docker') and not machine.endpoint
+                                    for machine in self.machines):
                 self.finish_docker_access()
-        self.work(lambda: vm_control.discover(self.authorized), complete, 'Buscando máquinas neste computador…')
+        self.work(lambda: vm_control.discover(self.authorized), complete, 'Buscando máquinas locais e remotas…')
 
     def finish_docker_access(self):
         if getattr(self, '_docker_access_done', False) or vm_control.docker_group_configured():
@@ -176,14 +177,15 @@ class MachineWindow(Adw.Window):
         machine = self.selected_machine()
         if self.busy or not machine:
             return
-        self.owner.cfg.update(vm_backend=machine.backend, vm_id=machine.identifier, vm_name=machine.name)
+        self.owner.cfg.update(vm_backend=machine.backend, vm_id=machine.identifier,
+                              vm_name=machine.name, vm_host=machine.endpoint)
         self.owner.persist()
         self.update_controls()
 
     def remove_binding(self, *_):
         if self.busy:
             return
-        self.owner.cfg.update(vm_backend='', vm_id='', vm_name='')
+        self.owner.cfg.update(vm_backend='', vm_id='', vm_name='', vm_host='')
         self.owner.persist()
         self.update_controls()
 
@@ -232,7 +234,8 @@ class MachineWindow(Adw.Window):
                 self.scan('Inicialização solicitada. Aguarde o Windows iniciar antes de conectar.' if action == 'start' else
                           'Desligamento solicitado. Atualize a busca para conferir o estado da máquina.')
 
-        self.work(lambda: vm_control.power(machine, action, elevated=elevated), complete,
+        memory_gib = self.owner.cfg['ram_limit_gib'] if action == 'start' and self.owner.cfg.get('ram_alert') else None
+        self.work(lambda: vm_control.power(machine, action, elevated=elevated, memory_gib=memory_gib), complete,
                   'Ligando a máquina…' if action == 'start' else 'Desligando a máquina…')
 
     def close_requested(self, *_):

@@ -28,40 +28,38 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — detecção local do Docker
+    return f'''# AJR Connect {TAG.removeprefix('v')} — VMs remotas, resolução e teto de RAM
 
 ## Mudanças
 
-- Detecta sockets do Docker que são links simbólicos e evita caminhos duplicados.
-- Consulta o contexto local selecionado e o endpoint Unix configurado no Docker.
-- Respeita o diretório de execução configurado para Docker sem root.
-- Amplia a busca de ferramentas para diretórios administrativos do sistema.
-- Diagnóstico no aplicativo mostra o cliente Docker, os sockets do sistema e do
-  usuário e o endpoint local configurado.
-- Mantém a busca restrita a máquinas locais, sem usar contextos remotos.
-- Preserva a correção dos módulos ausentes na instalação da beta 17.
+- Busca de máquinas cobre Docker, Podman, libvirt e VirtualBox neste PC e também
+  contextos Docker remotos já configurados (`ssh`/`tcp`) para VMs em outros hosts.
+- O vínculo da máquina guarda o endpoint remoto para ligar e desligar no host certo.
+- A resolução da sessão prioriza janela Linux 1:1 (sem upscale) e deixa claro que
+  o tamanho do buffer RDP reduz o consumo de RAM no cliente.
+- O limite de RAM passa a ser um teto da VM no hipervisor (Docker/Podman/libvirt/
+  VirtualBox), sem coletor dentro do Windows nem `\\\\tsclient\\AJRMonitor`.
+- Ao ligar a VM ou conectar com o limite ativo, o AJR aplica o teto; também há
+  **Aplicar teto agora** nas preferências.
+- Mantém a detecção local de sockets/contextos Docker da beta 18.
 
 ## Instalar ou atualizar
 
 {download_commands(repository)}
 Se o aplicativo ainda abre, também é possível atualizar em
 **Mais opções → Atualizações**, no canal **Versões de teste**.
-Se a versão anterior não abre por falta de módulo, o instalador desta versão
-repara os arquivos automaticamente. Não é necessário copiar módulos manualmente.
 
 ## Validação
 
-- Instalação nova, atualização de instalação incompleta e rollback em diretórios isolados.
-- Importação da interface usando somente os arquivos instalados.
-- Testes de descoberta Docker, contexto local, sockets por link, diretório
-  rootless, controle das máquinas, diagnósticos e rejeição de endpoints remotos.
-- Verificação de compatibilidade, atualização e recuperação de falhas.
+- Testes de descoberta local e remota Docker, limites de RAM no hipervisor,
+  resolução 1:1, preferências e pacotes.
+- Verificação de compatibilidade e montagem do comando FreeRDP.
 - Pacotes Linux e fontes com SHA256.
 
-Limitação conhecida: o teste gráfico de atualização falha na mensagem de
-cancelamento do download; a instalação e a recuperação passaram nos testes.
+Limitação conhecida: testes gráficos isolados exigem Xvfb neste ambiente.
 A instalação em um Zorin recém-instalado ainda precisa ser validada.
-As correções de detecção ainda precisam ser confirmadas nos PCs afetados.
+Contextos Docker remotos e a aplicação do teto de RAM precisam ser confirmados
+nos hosts reais do usuário.
 
 Versão de teste para Linux x86_64 com FreeRDP/WinPR 2.11.5.
 '''

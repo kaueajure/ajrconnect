@@ -3,11 +3,12 @@
 Cliente RDP com interface GTK4/libadwaita, frontend FreeRDP personalizado e
 AJR Bar integrada ao cliente para controlar sessões Windows.
 
-Versão de teste: **6.0.0-beta.18**. Inclui a interface V2, Sair completo,
+Versão de teste: **6.0.0-beta.19**. Inclui a interface V2, Sair completo,
 notificação em segundo plano, indicador de rede, presets Casa/4K/Lab,
 exportar/importar conexões, diagnóstico, canal estável/teste, atualização
 pelo app (GitHub Pages), reconexão automática, AJR Bar, correção do cast
-roxo via `/gfx:rfx` e autorização automática do Docker/VM.
+roxo via `/gfx:rfx`, busca de VMs locais e por contexto Docker remoto,
+resolução da sessão 1:1 no Linux e teto de RAM da VM no hipervisor.
 A instalação em um Zorin recém-instalado
 ainda precisa ser validada.
 
@@ -118,16 +119,14 @@ Reconecte depois de alterar as opções de teclado.
 
 ## Conexões e pastas
 
-### Ligar e desligar uma máquina local
+### Ligar e desligar uma máquina
 
-Abra o botão de computador no cabeçalho ou **Mais opções → Máquinas deste computador**.
-O AJR consulta **somente este computador**: Docker, Docker do usuário quando
-seu socket está disponível, Podman do usuário, KVM/libvirt (sistema e usuário)
-e VirtualBox. A busca inclui máquinas paradas e informa consultas sem permissão.
-Não procura arquivos no disco, não instala gerenciadores e **não controla Docker/VMs
-de outro PC** — quem só conecta por RDP a uma VM hospedada no seu servidor não
-verá essa máquina na lista. Ligar/desligar precisa ser feito no host onde a VM
-roda (ou com o usuário no grupo `docker`/`libvirt` e o daemon ativo).
+Abra o botão de computador no cabeçalho ou **Mais opções → Máquinas e VMs**.
+O AJR consulta Docker, Docker do usuário, Podman, KVM/libvirt (sistema e usuário)
+e VirtualBox **neste computador**, incluindo máquinas paradas. Também lista
+**contextos Docker remotos** já configurados (`ssh`/`tcp`) para VMs em outros PCs.
+Não procura arquivos no disco e não instala gerenciadores. Quem só conecta por
+RDP, sem contexto Docker/gerenciador acessível, não verá a VM na lista.
 
 Selecione a máquina que hospeda o Windows e clique em **Usar nesta conexão**.
 O vínculo usa o identificador da máquina e é salvo por conexão. A descoberta
@@ -220,11 +219,11 @@ Reconecte depois de alterar resolução ou escala dos monitores.
 
 ### Resolução e aparência do Windows
 
-Em **Tela e teclado → Resolução do Windows**, escolha a resolução do monitor
-ou **4K (3840×2160), 2K/QHD (2560×1440), 1080p, 720p, 480p ou 360p**.
-A escolha é salva por conexão e aplicada ao conectar ou reconectar. A resolução
-do Windows é independente do tamanho da janela local; 4K também pode ser
-exibido, redimensionado, em um monitor menor.
+Em **Tela e teclado → Resolução da sessão (Linux)**, escolha a resolução do
+monitor ou **4K (3840×2160), 2K/QHD (2560×1440), 1080p, 720p, 480p ou 360p**.
+A escolha é salva por conexão e define o buffer RDP no Linux (menos pixels =
+menos RAM no cliente). A janela local fica 1:1 quando cabe no monitor; só
+reduz se a sessão for maior que a tela.
 
 Todos os modos de qualidade usam 32 bits, preservam temas, papel de parede e
 suavização de fontes e desativam a composição adicional do desktop solicitada
@@ -233,38 +232,17 @@ com conteúdo; **Equilibrada** desativa animações; **Mais leve** também desat
 arrastar com conteúdo. Para reduzir a quantidade de pixels transmitidos, escolha
 uma resolução menor. O cliente continua usando `/gdi:sw` com `/gfx:rfx`.
 
-### Alerta de RAM da VM
+### Limite de RAM da VM
 
-Em **Tela e teclado → Memória da VM**, ative **Avisar ao ultrapassar o limite**
-e informe o limite em **GiB**. A configuração é salva por conexão. Trata-se de
-um limite de alerta sobre a RAM física usada **dentro do Windows**, não de uma
-reserva de memória no Docker/hipervisor nem da RAM consumida pelo cliente Linux.
+Em **Tela e teclado → Memória da VM**, ative **Limitar RAM da VM** e informe o
+teto em **GiB**. A configuração é salva por conexão e exige uma máquina
+vinculada em **Máquinas e VMs**. O AJR aplica o teto no hipervisor
+(Docker/Podman `update --memory`, libvirt `setmem`/`setmaxmem`, VirtualBox
+`modifyvm --memory`). Não usa coletor dentro do Windows.
 
-Depois de conectar, abra **Mais opções → RAM da VM**, copie o caminho e execute
-no Windows com **Win+R**:
-
-```text
-\\tsclient\AJRMonitor\iniciar.cmd
-```
-
-O coletor PowerShell consulta `Win32_OperatingSystem` a cada três segundos e
-envia apenas os contadores de memória pelo compartilhamento RDP da sessão.
-Não exige senha adicional nem instala um serviço. O lançador usa a política
-de execução `Bypass` apenas no processo do coletor, sem alterar a política do
-sistema. É necessário que o servidor permita redirecionamento de unidades.
-O menu mostra o uso atual e avisa quando não há leitura disponível.
-
-Ao ultrapassar o limite, o AJR exibe **Continuar** e **Parar sessão**, inclusive
-quando o RDP está em tela cheia. Continuar reconhece o aviso; um novo aviso só
-aparece após o uso cair abaixo de 90% do limite e ultrapassá-lo novamente.
-Parar desconecta o cliente, cancela a reconexão automática e mantém a VM ligada.
-O coletor encerra após perder o compartilhamento da sessão. Se uma queda longa
-encerrar o coletor, execute novamente o caminho após reconectar.
-
-O AJR descarta dados de outra sessão, arquivos inválidos e leituras que não
-avançaram por mais de 15 segundos. Sem o coletor, não apresenta um valor de
-RAM presumido. Reservar ou impor um teto físico de RAM exige configuração no
-hipervisor que executa a VM.
+O teto é aplicado ao **Ligar Windows**, ao **Conectar** com o limite ativo, ou
+pelo botão **Aplicar teto agora**. O status mostra o uso/teto lidos do
+hipervisor. No VirtualBox, a VM precisa estar desligada para alterar a memória.
 
 ## Compilar e testar
 

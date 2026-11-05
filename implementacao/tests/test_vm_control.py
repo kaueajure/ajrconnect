@@ -66,17 +66,54 @@ class MachineTests(unittest.TestCase):
                 server.bind(str(target))
                 self.assertEqual(vm.resolve_docker_socket('docker-user'), (target, 'ok'))
 
-    def test_remote_hosts_and_invalid_context_metadata_are_ignored(self):
-        for host in ('ssh://remote', 'tcp://remote:2375', 'unix://remote/docker.sock', 'unix:relative',
-                     'unix:///run/docker.sock?remote=1', 'unix:///run/docker%00.sock'):
+    def test_remote_hosts_are_not_treated_as_local_sockets_but_are_listed(self):
+        for host in ('ssh://remote', 'tcp://remote:2375'):
             with self.subTest(host=host), patch.dict(os.environ, {'DOCKER_HOST': host}, clear=True):
                 self.assertIsNone(vm.configured_docker_socket())
+                self.assertTrue(vm.valid_endpoint(host))
+                remotes = [item for item in vm.list_docker_contexts() if item['remote']]
+                self.assertEqual(remotes[0]['host'], host)
+        for host in ('unix://remote/docker.sock', 'unix:relative',
+                     'unix:///run/docker.sock?remote=1', 'unix:///run/docker%00.sock'):
+            with self.subTest(host=host):
+                self.assertFalse(vm.valid_endpoint(host))
         with tempfile.TemporaryDirectory() as directory, \
                 patch.dict(os.environ, {'DOCKER_CONFIG': directory}, clear=True):
             config = Path(directory) / 'config.json'
             for content in ('invalid json', '[]', '{"currentContext": {"invalid": true}}'):
                 config.write_text(content)
                 self.assertIsNone(vm.configured_docker_socket())
+
+    def test_configured_remote_context_is_discovered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            config = home / 'client-config'
+            context = 'lab-server'
+            digest = hashlib.sha256(context.encode()).hexdigest()
+            metadata = config / 'contexts/meta' / digest / 'meta.json'
+            metadata.parent.mkdir(parents=True)
+            (config / 'config.json').write_text(json.dumps({'currentContext': context}))
+            metadata.write_text(json.dumps({
+                'Name': context,
+                'Endpoints': {'docker': {'Host': 'ssh://user@lab.example'}},
+            }))
+            with patch.dict(os.environ, {'DOCKER_CONFIG': str(config)}, clear=True), \
+                    patch.object(vm, 'find_tool', side_effect=lambda tool: '/usr/bin/docker' if tool == 'docker' else None), \
+                    patch.object(vm, 'docker_host_args',
+                                 return_value=(('--host', 'unix:///missing.sock'), 'missing', Path('/missing.sock'))), \
+                    patch.object(vm.subprocess, 'run', side_effect=[
+                        subprocess.CompletedProcess([], 1, '', 'Cannot connect to the Docker daemon'),
+                        subprocess.CompletedProcess(
+                            [], 0, '{"id":"remote-id","name":["Windows Lab"],"state":"running"}', ''),
+                    ]) as run:
+                machines, notices, restricted = vm.discover()
+            remote = [m for m in machines if m.endpoint == 'ssh://user@lab.example']
+            self.assertEqual([(m.name, m.state, m.context) for m in remote],
+                             [('Windows Lab', 'running', 'lab-server')])
+            self.assertIn('--host', run.call_args.args[0])
+            self.assertIn('ssh://user@lab.example', run.call_args.args[0])
+            self.assertFalse(restricted)
+            self.assertTrue(any('serviço' in notice or 'daemon' in notice.casefold() for notice in notices))
 
     def test_discovery_includes_stopped_containers_without_exposing_configuration(self):
         payload = '\n'.join(json.dumps(dict(id=identifier, name=name, state=state))
@@ -257,7 +294,7 @@ with patch.object(gui,'secret',return_value=''), patch.object(gui,'detect_monito
     window.selection.set_selected(0); window.bind()
     assert win.cfg['vm_id']=='first-id' and window.start.get_sensitive()
     window.request_power('start'); drain(lambda: not window.busy)
-    power.assert_called_once_with(machines[0],'start',elevated=False)
+    power.assert_called_once_with(machines[0],'start',elevated=False,memory_gib=None)
     power.reset_mock()
     window.selection.set_selected(1); window.bind()
     assert window.stop.get_sensitive() and not window.start.get_sensitive()
@@ -269,7 +306,7 @@ with patch.object(gui,'secret',return_value=''), patch.object(gui,'detect_monito
     with patch.object(win,'connection_busy',return_value=True), patch.object(win,'cancel_connection') as cancel:
         dialog.response('stop'); drain(lambda: not window.busy)
         cancel.assert_called_once()
-    power.assert_called_once_with(machines[1],'stop',elevated=False)
+    power.assert_called_once_with(machines[1],'stop',elevated=False,memory_gib=None)
     window.remove_binding(); assert not win.cfg['vm_id'] and not window.stop.get_sensitive()
     window.close(); drain(); assert win._machine_window is None
     win.close(); drain()

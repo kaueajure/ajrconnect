@@ -209,25 +209,15 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.ram_limit.set_value(2)
     win.ui.page_scrolls['display'].get_vadjustment().set_value(0)
     capture(win, 'ajr-connect-resolution-memory')
-    from memory_monitor import MemoryMonitor, MemorySample, GIB
-    memory = MemoryMonitor.create(Path.home() / 'memory', 2)
-    # These captures use synthetic telemetry, not a running RDP process.
-    GLib.source_remove(win._poll)
-    class Proc:
-        pid = 42000
-    win.proc = Proc()
-    win._connection_request = dict(memory=memory)
-    win.open_memory_monitor()
-    capture(win._ram_guide, 'ajr-connect-memory-setup')
-    win._ram_guide.response('close')
-    with patch.object(win, 'control'):
-        win.show_memory_warning(memory, MemorySample(3 * GIB, 4 * GIB))
-        capture(win._ram_dialog, 'ajr-connect-memory-warning')
-        win._ram_dialog.response('continue')
-    win.proc = None
-    win.finish_connection()
-    win._poll = GLib.timeout_add(250, win.poll_session)
     import vm_control
+    win.cfg.update(vm_backend='docker', vm_id='demo-windows-id', vm_name='Windows SQL', vm_host='')
+    with patch.object(vm_control, 'memory_status',
+                      return_value=vm_control.MemoryStatus(1 * 1024**3, 2 * 1024**3, True)), \
+            patch.object(vm_control, 'set_memory_limit'):
+        win.open_memory_monitor()
+        capture(win._ram_guide, 'ajr-connect-memory-setup')
+        win._ram_guide.response('close')
+    win.finish_connection()
     machines = [vm_control.Machine('docker', 'demo-windows-id', 'Windows SQL', 'exited'),
                 vm_control.Machine('virtualbox', 'demo-lab-id', 'Laboratório', 'running')]
     with patch.object(vm_control, 'discover', return_value=(machines, [], [])):

@@ -32,7 +32,7 @@ QUALITY_PRESETS = (
     (2, 'Lab', '1080p'),
 )
 DEFAULT = dict(server='', user='', shares=[], quality=0, resolution='monitor',
-    vm_backend='', vm_id='', vm_name='',
+    vm_backend='', vm_id='', vm_name='', vm_host='',
     ram_alert=False, ram_limit_gib=4.0,
     monitor='0', monitor_connector='', fullscreen=False, capture_keyboard=True,
     clipboard=True, remember=False, keyboard_mode='fullscreen',
@@ -66,10 +66,14 @@ def normalize_settings(data):
         cfg.update({k: v for k, v in data.items() if k in PROFILE_KEYS})
     for key in ('server', 'user', 'monitor', 'monitor_connector'):
         cfg[key] = str(cfg[key]) if isinstance(cfg[key], (str, int)) else DEFAULT[key]
-    from vm_control import BACKENDS, valid_identifier
+    from vm_control import BACKENDS, valid_endpoint, valid_identifier
+    host = cfg.get('vm_host', '')
+    if not isinstance(host, str) or (host and not valid_endpoint(host)):
+        host = ''
+    cfg['vm_host'] = host
     if not isinstance(cfg['vm_backend'], str) or cfg['vm_backend'] not in BACKENDS or not valid_identifier(cfg['vm_id']) \
-            or not valid_identifier(cfg['vm_name']):
-        cfg.update(vm_backend='', vm_id='', vm_name='')
+            or not valid_identifier(cfg['vm_name']) or (cfg['vm_host'] and not cfg['vm_backend'].startswith('docker')):
+        cfg.update(vm_backend='', vm_id='', vm_name='', vm_host='')
     for key in ('fullscreen', 'capture_keyboard', 'clipboard', 'remember',
                 'remote_alt_tab', 'remote_super', 'remote_alt_f4', 'auto_reconnect', 'ram_alert'):
         cfg[key] = cfg[key] if isinstance(cfg[key], bool) else DEFAULT[key]
@@ -261,17 +265,20 @@ def remote_resolution(cfg, monitor):
 
 
 def window_geometry(monitor, remote_size=None):
-    # Preserve the remote aspect ratio, with space for GNOME decorations.
-    scale = min(0.8, (monitor['width'] - 96) / monitor['width'],
-                (monitor['height'] - 128) / monitor['height'])
+    # Prefer a 1:1 Linux window for the chosen session size (this is what FreeRDP
+    # allocates in RAM). Only scale down when the session exceeds the usable area.
     remote_w, remote_h = remote_size or (monitor['width'], monitor['height'])
-    fit = min(monitor['width'] * scale / remote_w, monitor['height'] * scale / remote_h)
+    max_w = max(320, monitor['width'] - 96)
+    max_h = max(240, monitor['height'] - 128)
+    fit = min(1.0, max_w / remote_w, max_h / remote_h)
     w, h = max(320, int(remote_w * fit)), max(240, int(remote_h * fit))
     return (monitor['x'] + (monitor['width'] - w) // 2,
             monitor['y'] + (monitor['height'] - h) // 2, w, h)
 
 
 def build_command(cfg, monitor, native=NATIVE):
+    # Session pixel size (/w /h) is the Linux FreeRDP framebuffer — lower values
+    # reduce client RAM. smart-sizing only fits that buffer into the local window.
     remote_w, remote_h = remote_resolution(cfg, monitor)
     x, y, w, h = window_geometry(monitor, (remote_w, remote_h))
     cmd = [str(native), f"/v:{cfg['server']}", f"/u:{cfg['user']}",
@@ -292,8 +299,6 @@ def build_command(cfg, monitor, native=NATIVE):
     cmd += ['+menu-anims' if cfg['quality'] == 1 else '-menu-anims',
             '-window-drag' if cfg['quality'] == 2 else '+window-drag']
     for share in cfg['shares']:
-        if cfg.get('ram_alert') and share['name'].casefold() == 'ajrmonitor':
-            raise ValueError('O nome AJRMonitor é reservado para o monitoramento de RAM. Renomeie essa pasta.')
         path = str(Path(share['path']).expanduser().resolve())
         if ',' in path or ',' in share['name']:
             raise ValueError('O nome e o caminho da pasta não podem conter vírgulas.')

@@ -29,6 +29,12 @@ class DisplayTests(unittest.TestCase):
                 self.assertLessEqual(x + w, MONITOR['x'] + MONITOR['width'])
                 self.assertLessEqual(y + h, MONITOR['height'])
                 self.assertAlmostEqual(w / h, width / height, delta=.01)
+                # Prefer 1:1 on Linux when the session fits; only scale down for 4K-on-1080p etc.
+                if width <= MONITOR['width'] - 96 and height <= MONITOR['height'] - 128:
+                    self.assertEqual((w, h), (width, height))
+                else:
+                    self.assertLess(w, width)
+                    self.assertLess(h, height)
 
     def test_resolution_and_ram_preferences_follow_profiles_and_restart(self):
         cfg = copy.deepcopy(core.DEFAULT)
@@ -68,12 +74,6 @@ class DisplayTests(unittest.TestCase):
                 self.assertIn('-window-drag', command)
             else:
                 self.assertIn('+window-drag', command)
-
-    def test_monitor_share_name_collision_is_rejected(self):
-        cfg = copy.deepcopy(core.DEFAULT)
-        cfg.update(ram_alert=True, shares=[dict(name='ajrmonitor', path='/tmp')])
-        with self.assertRaisesRegex(ValueError, 'reservado'):
-            core.build_command(cfg, MONITOR)
 
     def test_actual_freerdp_parser_preserves_visuals_with_rfx_gfx(self):
         try:

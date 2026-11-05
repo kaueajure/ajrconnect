@@ -1,69 +1,75 @@
-"""Guest sample validation, threshold decisions and isolated GTK warning actions."""
-import json
+"""Hypervisor RAM limit helpers and isolated GTK apply/status actions."""
+import copy
 from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from memory_monitor import GIB, MemoryMonitor, MemorySample
+import core
+import memory_monitor as mem
+import vm_control as vm
 
 
 class MemoryTests(unittest.TestCase):
-    def setUp(self):
-        self.folder = tempfile.TemporaryDirectory()
-        self.addCleanup(self.folder.cleanup)
-        self.now = 0
-        self.monitor = MemoryMonitor(self.folder.name, 'test-session', 2, clock=lambda: self.now)
+    def test_parse_size_and_describe(self):
+        self.assertEqual(vm.parse_size('1.5GiB'), int(1.5 * vm.GIB))
+        self.assertEqual(vm.parse_size('512MiB'), 512 * vm.MIB)
+        status = vm.MemoryStatus(3 * vm.GIB, 4 * vm.GIB, True)
+        self.assertIn('3.00 GiB', mem.describe(status))
+        self.assertIn('4', mem.describe(status))
 
-    def write_sample(self, **overrides):
-        data = dict(session='test-session', sequence=1, used_bytes=GIB, total_bytes=4 * GIB)
-        data.update(overrides)
-        (Path(self.folder.name) / 'memory.json').write_text(json.dumps(data))
+    def test_bound_machine_requires_valid_link(self):
+        cfg = copy.deepcopy(core.DEFAULT)
+        self.assertIsNone(vm.bound_machine(cfg))
+        cfg.update(vm_backend='docker', vm_id='abc', vm_name='Windows', vm_host='')
+        self.assertEqual(vm.bound_machine(cfg).identifier, 'abc')
+        cfg['vm_host'] = 'ssh://lab'
+        self.assertEqual(vm.bound_machine(cfg).endpoint, 'ssh://lab')
+        cfg['vm_host'] = 'not-a-url'
+        self.assertIsNone(vm.bound_machine(cfg))
 
-    def test_missing_corrupt_wrong_session_and_stale_are_unavailable(self):
-        self.assertIsNone(self.monitor.read())
-        for overrides in [dict(session='another'), dict(used_bytes=-1), dict(total_bytes=1),
-                          dict(sequence=True), dict(used_bytes='1024')]:
-            self.write_sample(**overrides)
-            self.assertIsNone(self.monitor.read())
-        self.write_sample()
-        self.assertEqual(self.monitor.read(), MemorySample(GIB, 4 * GIB))
-        self.now = 16
-        self.assertIsNone(self.monitor.read())
-        self.write_sample(sequence=2)
-        self.assertIsNotNone(self.monitor.read())
-        (Path(self.folder.name) / 'memory.json').write_text('{')
-        self.assertIsNone(self.monitor.read())
+    def test_docker_set_limit_and_status(self):
+        machine = vm.Machine('docker', 'cid', 'Windows')
+        with patch.object(vm, 'run', side_effect=['', '4294967296', 'true', '1.25GiB / 4GiB']) as run:
+            vm.set_memory_limit(machine, 4)
+            status = vm.memory_status(machine)
+        self.assertEqual(run.call_args_list[0].args[1][:3], ['update', '--memory', '4096m'])
+        self.assertEqual(run.call_args_list[0].args[1][3:5], ['--memory-swap', '4096m'])
+        self.assertEqual(status, vm.MemoryStatus(int(1.25 * vm.GIB), 4294967296, True))
 
-    def test_symlinks_and_oversized_files_are_rejected(self):
-        path = Path(self.folder.name) / 'memory.json'
-        path.symlink_to('/etc/passwd')
-        self.assertIsNone(self.monitor.read())
-        path.unlink()
-        path.write_text(' ' * 4097)
-        self.assertIsNone(self.monitor.read())
+    def test_libvirt_and_virtualbox_limits(self):
+        libvirt = vm.Machine('libvirt', 'uuid', 'Windows')
+        with patch.object(vm, 'run') as run:
+            vm.set_memory_limit(libvirt, 2)
+            args = [call.args[1] for call in run.call_args_list]
+        self.assertTrue(any(item[0] == 'setmaxmem' and '2097152' in item for item in args))
+        self.assertTrue(any(item[0] == 'setmem' and '--config' in item for item in args))
+        with patch.object(vm, 'run', return_value='Max memory: 2097152 KiB\nUsed memory: 1048576 KiB\nState: running\n'):
+            status = vm.memory_status(libvirt)
+        self.assertEqual(status.used_bytes, vm.GIB)
+        self.assertEqual(status.limit_bytes, 2 * vm.GIB)
+        vbox = vm.Machine('virtualbox', 'uuid', 'Windows')
+        with patch.object(vm, 'run', side_effect=[
+                'memory=2048\nVMState="poweroff"\n',
+                '',
+        ]) as run:
+            vm.set_memory_limit(vbox, 3)
+        self.assertEqual(run.call_args.args[1], ['modifyvm', 'uuid', '--memory', '3072'])
+        with patch.object(vm, 'run', return_value='memory=2048\nVMState="running"\n'):
+            with self.assertRaisesRegex(vm.VMError, 'Desligue'):
+                vm.set_memory_limit(vbox, 3)
 
-    def test_continue_suppresses_duplicates_until_usage_returns_below_limit(self):
-        high = MemorySample(3 * GIB, 4 * GIB)
-        self.assertTrue(self.monitor.warning_needed(high))
-        self.monitor.acknowledge()
-        self.assertFalse(self.monitor.warning_needed(high))
-        self.assertFalse(self.monitor.warning_needed(MemorySample(2 * GIB, 4 * GIB)))
-        self.assertFalse(self.monitor.warning_needed(MemorySample(GIB, 4 * GIB)))
-        self.assertTrue(self.monitor.warning_needed(high))
-
-    def test_share_contains_only_session_scoped_guest_collector_and_is_cleaned(self):
-        monitor = MemoryMonitor.create(self.folder.name, 4)
-        self.assertEqual(monitor.directory.stat().st_mode & 0o777, 0o700)
-        self.assertEqual(json.loads((monitor.directory / 'session.json').read_text())['session'], monitor.session)
-        collector = (monitor.directory / 'monitor.ps1').read_text()
-        self.assertIn('Win32_OperatingSystem', collector)
-        self.assertNotIn('__SESSION__', collector)
-        self.assertIn(monitor.session, collector)
-        self.assertIn('iniciar.cmd', [path.name for path in monitor.directory.iterdir()])
-        monitor.close()
-        self.assertFalse(monitor.directory.exists())
+    def test_power_start_applies_memory_before_boot(self):
+        machine = vm.Machine('docker', 'cid', 'Windows')
+        with patch.object(vm, 'set_memory_limit') as limit, patch.object(vm, 'run') as run:
+            vm.power(machine, 'start', memory_gib=2.5)
+        limit.assert_called_once_with(machine, 2.5, elevated=False)
+        self.assertEqual(run.call_args.args[1], ['start', 'cid'])
+        with patch.object(vm, 'set_memory_limit') as limit, patch.object(vm, 'run'):
+            vm.power(machine, 'stop', memory_gib=2.5)
+        limit.assert_not_called()
 
 
 GUI_SCRIPT = r'''
@@ -72,11 +78,11 @@ from pathlib import Path
 from unittest.mock import patch
 sys.path.insert(0, sys.argv[1])
 import ajr_app as gui
+import vm_control as vm
 from gi.repository import Gio, GLib
-from memory_monitor import MemoryMonitor, MemorySample, GIB
 from core import RESOLUTIONS
 def drain():
-    until = time.monotonic() + .15
+    until = time.monotonic() + .2
     while time.monotonic() < until:
         while GLib.MainContext.default().pending(): GLib.MainContext.default().iteration(False)
         time.sleep(.005)
@@ -94,39 +100,18 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     win.apply_profile()
     assert RESOLUTIONS[win.resolution.get_selected()][0] == '360p'
     assert not win.ram_limit.get_sensitive()
-    monitor = MemoryMonitor.create(Path.home() / 'memory', 2)
-    GLib.source_remove(win._poll)
-    class Proc:
-        pid = 42000
-    win.proc = Proc()
-    win._connection_request = dict(memory=monitor)
-    win._started = True
-    actions = []
-    with patch.object(win, 'control', side_effect=actions.append), \
-            patch.object(monitor, 'read', return_value=MemorySample(3 * GIB, 4 * GIB)):
-        win.poll_memory()
-        drain()
-        assert actions == ['minimize'] and win._ram_dialog
-        win._ram_dialog.response('continue'); drain()
-        assert not win._ram_dialog and monitor.acknowledged
-        win._ram_next_poll = 0; win.poll_memory(); assert not win._ram_dialog
-        monitor.acknowledged = False
-        win._ram_next_poll = 0; win.poll_memory()
-        with patch.object(win, 'cancel_connection') as cancel:
-            win._ram_dialog.response('stop'); drain()
-            cancel.assert_called_once()
-        monitor.acknowledged = False
-        win._ram_next_poll = 0; win.poll_memory()
-        with patch.object(win, 'cancel_connection') as cancel:
-            stale_dialog = win._ram_dialog
-            win.close_memory_dialogs(); stale_dialog.response('stop'); drain()
-            cancel.assert_not_called()
-    win.proc = None
-    win.finish_connection()
-    assert not monitor.directory.exists()
-    win._poll = GLib.timeout_add(250, win.poll_session)
+    win.ram_alert.set_active(True)
+    win.cfg.update(vm_backend='docker', vm_id='cid', vm_name='Windows', vm_host='')
+    status = vm.MemoryStatus(1 * vm.GIB, 2 * vm.GIB, True)
+    with patch.object(vm, 'set_memory_limit') as limit, patch.object(vm, 'memory_status', return_value=status):
+        win.apply_vm_memory_limit(); drain()
+        limit.assert_called_once()
+        assert '1.00 GiB' in win.ram_status.get_subtitle()
+    win.open_memory_monitor(); drain()
+    assert win._ram_guide
+    win._ram_guide.response('close'); drain()
     win.close(); drain()
-print('PASS RAM GTK: resolution/settings, warning, continue, stop, stale dialog and cleanup')
+print('PASS RAM GTK: hypervisor limit apply, status and dialog')
 '''
 
 

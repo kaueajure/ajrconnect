@@ -164,24 +164,24 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'X11', X11)
     win.poll_session()
     assert not win.connection_busy() and not win.error.get_visible()
 
-    # Resolution and guest monitoring share survive an automatic retry;
-    # disconnect removes telemetry and cannot reconnect due to a RAM warning.
+    # Resolution and hypervisor RAM ceiling survive an automatic retry.
     win.resolution.set_selected(1)
     win.ram_alert.set_active(True)
     win.ram_limit.set_value(2.5)
-    proc = connect()
-    memory = win._connection_request['memory']
-    share = '/drive:AJRMonitor,' + str(memory.directory)
-    assert share in proc.command and '/w:3840' in proc.command and '/h:2160' in proc.command
-    win._retry_plan.delays = (.03,) * 5
-    proc.code = 131
-    win.poll_session()
-    drain(.5)
-    assert win.proc is not proc and win._started
-    assert win._connection_request['memory'] is memory and share in win.proc.command
-    win.cancel_connection(); win.poll_session()
-    assert not win.connection_busy() and not memory.directory.exists()
+    win.cfg.update(vm_backend='docker', vm_id='cid', vm_name='Windows', vm_host='')
+    with patch.object(gui.vm_control, 'set_memory_limit') as limit:
+        proc = connect()
+        assert limit.called and '/w:3840' in proc.command and '/h:2160' in proc.command
+        win._retry_plan.delays = (.03,) * 5
+        proc.code = 131
+        win.poll_session()
+        drain(.5)
+        assert win.proc is not proc and win._started
+        assert win._connection_request.get('memory_limit')
+        win.cancel_connection(); win.poll_session()
+        assert not win.connection_busy()
     win.ram_alert.set_active(False)
+    win.cfg.update(vm_backend='', vm_id='', vm_name='', vm_host='')
 
     # Cancellation during a slow probe ignores its late completion.
     entered, release = threading.Event(), threading.Event()

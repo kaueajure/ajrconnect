@@ -23,7 +23,8 @@ from dialogs import ShareEditor, ShortcutEditor, shortcut_parts, unique_name
 from keyboard import native_rules, validate_rules, x11_modifiers, desktop_bindings, desktop_shortcut
 from keyboard_portal import KeyboardPortal
 from reconnect import RetryPlan
-from memory_monitor import MemoryMonitor, START_COMMAND, GIB, describe
+from memory_monitor import describe
+import vm_control
 from vm_dialog import MachineWindow
 from check_compatibility import collect_support_report
 from tray import TrayController
@@ -281,8 +282,8 @@ class MainWindow(Adw.ApplicationWindow):
         self._quality_applying = False
         self.ram_alert.set_active(self.cfg['ram_alert'])
         self.ram_limit.set_value(self.cfg['ram_limit_gib'])
-        self.ram_status.set_subtitle('Inicie o coletor após conectar.' if self.cfg['ram_alert']
-                                     else 'Monitoramento desativado.')
+        self.ram_status.set_subtitle('Vincule uma máquina e ative o limite.' if self.cfg['ram_alert']
+                                     else 'Limite desativado.')
         self.keyboard_mode.set_selected(('fullscreen', 'always', 'local').index(self.cfg['keyboard_mode']))
         for key, row in self.keyboard_rows.items():
             row.set_active(self.cfg[key])
@@ -633,23 +634,15 @@ class MainWindow(Adw.ApplicationWindow):
         except (ValueError, OSError, subprocess.TimeoutExpired, GLib.Error) as exc:
             self.show_error(str(exc))
             return
-        memory = None
-        if self.cfg['ram_alert']:
-            try:
-                memory = MemoryMonitor.create(RUNTIME_DIR / 'memory', self.cfg['ram_limit_gib'])
-                if ',' in str(memory.directory):
-                    raise ValueError('O diretório do monitoramento de RAM não pode conter vírgulas.')
-                command.append(f'/drive:AJRMonitor,{memory.directory}')
-            except (OSError, ValueError) as exc:
-                if memory:
-                    memory.close()
-                self.show_error('Não foi possível preparar o monitoramento de RAM: ' + str(exc))
-                return
+        if self.cfg['ram_alert'] and vm_control.bound_machine(self.cfg) is None:
+            self.show_error('Para limitar a RAM da VM, vincule a máquina em Mais opções → Máquinas e VMs.')
+            return
         self._ram_next_poll = 0
-        self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor, memory=memory,
+        self._connection_request = dict(cfg=copy.deepcopy(self.cfg), monitor=monitor,
             command=command, password=self.password.get_text(), key=shortcut_key,
             mods=x11_modifiers(shortcut_mods), rules=rule_protocol,
-            scale=self.get_scale_factor(), dark=Adw.StyleManager.get_default().get_dark())
+            scale=self.get_scale_factor(), dark=Adw.StyleManager.get_default().get_dark(),
+            memory_limit=self.cfg['ram_alert'])
         self._retry_plan = RetryPlan(enabled=self.cfg['auto_reconnect'])
         self._manual_disconnect = self._reconnecting = False
         self.start_connection()
@@ -681,8 +674,12 @@ class MainWindow(Adw.ApplicationWindow):
                         if not Path(share['path']).expanduser().is_dir():
                             raise ValueError('A pasta compartilhada não está mais disponível: ' + share['name'])
                     command = build_command(cfg, monitor)
-                    if request.get('memory'):
-                        command.append(f"/drive:AJRMonitor,{request['memory'].directory}")
+                if request.get('memory_limit'):
+                    machine = vm_control.bound_machine(cfg)
+                    if machine is None:
+                        raise ValueError('A máquina vinculada para o limite de RAM não está mais disponível.')
+                    vm_control.set_memory_limit(machine, cfg['ram_limit_gib'])
+                updates.check_cancel(cancel)
                 with socket.create_connection(host_port(cfg['server']), timeout=3):
                     pass
                 updates.check_cancel(cancel)
@@ -768,10 +765,8 @@ class MainWindow(Adw.ApplicationWindow):
 
     def finish_connection(self, error='', status='Sessão encerrada'):
         self.close_memory_dialogs()
-        if self._connection_request and self._connection_request.get('memory'):
-            self._connection_request['memory'].close()
-        self.ram_status.set_subtitle('Inicie o coletor após conectar.' if self.cfg['ram_alert']
-                                     else 'Monitoramento desativado.')
+        self.ram_status.set_subtitle('Vincule uma máquina e ative o limite.' if self.cfg['ram_alert']
+                                     else 'Limite desativado.')
         self._connection_request, self._retry_plan = None, None
         self._launching = self._reconnecting = False
         self._status_generation += 1
@@ -890,8 +885,9 @@ class MainWindow(Adw.ApplicationWindow):
                 self.tray.set_connected(True)
             if self.session['start_fullscreen']:
                 self.control('fullscreen')
-        if state:
+        if self.cfg.get('ram_alert') and vm_control.bound_machine(self.cfg):
             self.poll_memory()
+        if state:
             self.poll_network()
             if self._connection_request:
                 self._connection_request['cfg']['fullscreen'] = bool(state[1])
@@ -951,78 +947,109 @@ class MainWindow(Adw.ApplicationWindow):
         if self._ram_guide:
             self._ram_guide.present()
             return
-        active = self._connection_request and self._connection_request.get('memory')
-        body = ('No Windows desta sessão, pressione Win + R, cole o caminho abaixo e execute. '
-                'O coletor mede a RAM do Windows a cada 3 segundos e termina após a desconexão. '
-                'Ele não exige senha adicional nem altera a RAM reservada da VM.') if active else \
-               ('Ative o alerta em Tela e teclado → Memória da VM, escolha o limite e conecte. '
-                'Depois abra este menu para iniciar o coletor dentro do Windows.')
+        machine = vm_control.bound_machine(self.cfg)
+        if not self.cfg['ram_alert']:
+            body = ('Ative Limitar RAM da VM em Tela e teclado → Memória da VM e informe o teto em GiB. '
+                    'O AJR aplica esse valor no Docker/Podman/libvirt/VirtualBox da máquina vinculada.')
+        elif machine is None:
+            body = ('O limite está ativo, mas nenhuma máquina está vinculada. '
+                    'Abra Mais opções → Máquinas e VMs, busque a VM e escolha Usar nesta conexão.')
+        else:
+            body = (f'Teto configurado: {self.cfg["ram_limit_gib"]:g} GiB para “{machine.name}”. '
+                    'O hipervisor impede a VM de usar mais do que isso. '
+                    'Use Aplicar teto agora nas preferências ou Ligar Windows / Conectar para aplicar.')
         dialog = self._ram_guide = Adw.MessageDialog(transient_for=self, modal=True,
             heading='RAM da VM', body=body)
         dialog.add_response('close', 'Fechar')
+        if self.cfg['ram_alert'] and machine is not None:
+            dialog.add_response('apply', 'Aplicar teto agora')
+            dialog.set_response_appearance('apply', Adw.ResponseAppearance.SUGGESTED)
+            dialog.set_default_response('apply')
+        else:
+            dialog.set_default_response('close')
         dialog.set_close_response('close')
-        dialog.set_default_response('close')
-        if active:
-            box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
-            self._ram_guide_status = Gtk.Label(label=self.ram_status.get_subtitle(), wrap=True)
-            box.append(self._ram_guide_status)
-            field = Gtk.Entry(text=START_COMMAND, editable=False, hexpand=True)
-            field.update_property([Gtk.AccessibleProperty.LABEL], ['Caminho para iniciar o coletor no Windows'])
-            box.append(field)
-            copy_button = Gtk.Button(label='Copiar caminho')
-            def copy_command(*_):
-                self.get_clipboard().set(START_COMMAND)
-                copy_button.set_label('Caminho copiado')
-            copy_button.connect('clicked', copy_command)
-            box.append(copy_button)
-            dialog.set_extra_child(box)
-        def closed(*_):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self._ram_guide_status = Gtk.Label(label=self.ram_status.get_subtitle(), wrap=True)
+        box.append(self._ram_guide_status)
+        dialog.set_extra_child(box)
+        def closed(_dialog, response):
             if self._ram_guide is dialog:
                 self._ram_guide = None
+            if response == 'apply':
+                self.apply_vm_memory_limit()
         dialog.connect('response', closed)
         dialog.present()
+        self.poll_memory(force=True)
 
-    def poll_memory(self):
-        monitor = self._connection_request and self._connection_request.get('memory')
-        if not monitor or time.monotonic() < self._ram_next_poll:
+    def apply_vm_memory_limit(self, *_):
+        self.persist()
+        if not self.cfg['ram_alert']:
+            self.show_error('Ative Limitar RAM da VM antes de aplicar o teto.')
+            return
+        machine = vm_control.bound_machine(self.cfg)
+        if machine is None:
+            self.show_error('Vincule a VM em Mais opções → Máquinas e VMs antes de limitar a RAM.')
+            return
+        limit = self.cfg['ram_limit_gib']
+
+        def work():
+            try:
+                vm_control.set_memory_limit(machine, limit)
+                status = vm_control.memory_status(machine)
+                return status, None
+            except Exception as exc:
+                return None, exc
+
+        def done(result, error):
+            if error:
+                self.show_error(str(error))
+                return
+            self.ram_status.set_subtitle(describe(result))
+            if self._ram_guide:
+                self._ram_guide_status.set_text(describe(result))
+            self.toast.add_toast(Adw.Toast(title=f'Teto de {limit:g} GiB aplicado em “{machine.name}”.'))
+
+        def finish():
+            status, error = work()
+            GLib.idle_add(lambda: (done(status, error), False)[1])
+        threading.Thread(target=finish, daemon=True).start()
+
+    def poll_memory(self, force=False):
+        if not self.cfg.get('ram_alert'):
+            return
+        if not force and time.monotonic() < self._ram_next_poll:
             return
         self._ram_next_poll = time.monotonic() + 3
-        sample = monitor.read()
-        text = (describe(sample) + f' · limite: {monitor.limit_bytes / GIB:g} GiB') if sample else \
-               'Sem leitura atual. Inicie o coletor em Mais opções → RAM da VM.'
-        self.ram_status.set_subtitle(text)
-        if self._ram_guide:
-            self._ram_guide_status.set_text(text)
-        if sample and monitor.warning_needed(sample) and not self._ram_dialog:
-            monitor.acknowledge()
-            self.show_memory_warning(monitor, sample)
+        machine = vm_control.bound_machine(self.cfg)
+        if machine is None:
+            text = 'Nenhuma máquina vinculada. Abra Máquinas e VMs para vincular a VM.'
+            self.ram_status.set_subtitle(text)
+            if self._ram_guide:
+                self._ram_guide_status.set_text(text)
+            return
+        generation = self._connection_generation
 
-    def show_memory_warning(self, monitor, sample):
-        pid = self.proc.pid
-        dialog = self._ram_dialog = Adw.MessageDialog(transient_for=self, modal=True,
-            heading='A VM ultrapassou o limite de RAM',
-            body=f'{describe(sample)}. Limite de alerta: {monitor.limit_bytes / GIB:g} GiB. '
-                 'Você pode continuar ou parar a sessão. Parar desconecta o AJR e mantém a VM ligada.')
-        dialog.add_response('continue', 'Continuar')
-        dialog.add_response('stop', 'Parar sessão')
-        dialog.set_response_appearance('stop', Adw.ResponseAppearance.DESTRUCTIVE)
-        dialog.set_default_response('continue')
-        dialog.set_close_response('continue')
-        def response(_dialog, result):
-            current = self._ram_dialog is dialog
-            if current:
-                self._ram_dialog = None
-            if not current or not self.proc or self.proc.pid != pid or \
-                    not self._connection_request or self._connection_request.get('memory') is not monitor:
+        def work():
+            try:
+                return vm_control.memory_status(machine), None
+            except Exception as exc:
+                return None, exc
+
+        def done(status, error):
+            if self._closing or generation != self._connection_generation:
                 return
-            monitor.acknowledge()
-            if result == 'stop':
-                self.cancel_connection()
-        dialog.connect('response', response)
-        # Ensure the warning is visible even while the RDP window is fullscreen.
-        self.control('minimize')
-        self.present()
-        dialog.present()
+            if error:
+                text = f'Sem leitura do hipervisor: {error}'
+            else:
+                text = describe(status) + ('' if status.running else ' · VM parada')
+            self.ram_status.set_subtitle(text)
+            if self._ram_guide:
+                self._ram_guide_status.set_text(text)
+
+        def finish():
+            status, error = work()
+            GLib.idle_add(lambda: (done(status, error), False)[1])
+        threading.Thread(target=finish, daemon=True).start()
 
     def dispatch_local_shortcuts(self):
         window = self.x11.find_window(self.proc.pid)
