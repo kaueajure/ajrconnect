@@ -28,20 +28,19 @@ solicitar autorização de teclado, com opção de lembrar a seleção.
 
 
 def release_notes(repository):
-    return f'''# AJR Connect {TAG.removeprefix('v')} — VMs remotas, resolução e teto de RAM
+    return f'''# AJR Connect {TAG.removeprefix('v')} — atualização obrigatória
 
 ## Mudanças
 
-- Busca de máquinas cobre Docker, Podman, libvirt e VirtualBox neste PC e também
-  contextos Docker remotos já configurados (`ssh`/`tcp`) para VMs em outros hosts.
-- O vínculo da máquina guarda o endpoint remoto para ligar e desligar no host certo.
-- A resolução da sessão prioriza janela Linux 1:1 (sem upscale) e deixa claro que
-  o tamanho do buffer RDP reduz o consumo de RAM no cliente.
-- O limite de RAM passa a ser um teto da VM no hipervisor (Docker/Podman/libvirt/
-  VirtualBox), sem coletor dentro do Windows nem `\\\\tsclient\\AJRMonitor`.
-- Ao ligar a VM ou conectar com o limite ativo, o AJR aplica o teto; também há
-  **Aplicar teto agora** nas preferências.
-- Mantém a detecção local de sockets/contextos Docker da beta 18.
+- Quando há versão nova no canal escolhido, o aplicativo instalado bloqueia
+  conexão e demais ações até atualizar; só **Atualizar** e **Sair** ficam
+  disponíveis.
+- O botão principal passa a **Atualizar para continuar** e a janela de
+  atualizações abre automaticamente.
+- Sessões ativas são desconectadas para permitir baixar e instalar a versão.
+- Após instalar, o botão pede **Reiniciar aplicativo**.
+- Mantém VMs remotas via contexto Docker, resolução 1:1 no Linux e teto de RAM
+  da VM no hipervisor da beta 19.
 
 ## Instalar ou atualizar
 
@@ -51,15 +50,12 @@ Se o aplicativo ainda abre, também é possível atualizar em
 
 ## Validação
 
-- Testes de descoberta local e remota Docker, limites de RAM no hipervisor,
-  resolução 1:1, preferências e pacotes.
-- Verificação de compatibilidade e montagem do comando FreeRDP.
+- Testes do bloqueio obrigatório de atualização, download/cancelamento e
+  reinício.
 - Pacotes Linux e fontes com SHA256.
 
 Limitação conhecida: testes gráficos isolados exigem Xvfb neste ambiente.
 A instalação em um Zorin recém-instalado ainda precisa ser validada.
-Contextos Docker remotos e a aplicação do teto de RAM precisam ser confirmados
-nos hosts reais do usuário.
 
 Versão de teste para Linux x86_64 com FreeRDP/WinPR 2.11.5.
 '''

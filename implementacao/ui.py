@@ -113,9 +113,11 @@ class DesktopView:
         self.theme_button = Gtk.Button(tooltip_text='Alternar tema claro e escuro')
         self.theme_button.connect('clicked', self.toggle_theme)
         header.pack_end(self.theme_button)
-        machines = Gtk.Button(icon_name='computer-symbolic', tooltip_text='Máquinas e VMs: ligar e desligar Windows')
-        machines.connect('clicked', w.open_machines)
-        header.pack_end(machines)
+        self.machines_button = Gtk.Button(icon_name='computer-symbolic',
+                                          tooltip_text='Máquinas e VMs: ligar e desligar Windows')
+        self.machines_button.connect('clicked', w.open_machines)
+        header.pack_end(self.machines_button)
+        self.menu_actions = {}
         menu = Gio.Menu()
         for name, title, callback in [('logs', 'Registros da conexão', w.open_logs),
                                        ('machines', 'Máquinas e VMs', w.open_machines),
@@ -128,6 +130,7 @@ class DesktopView:
             action = Gio.SimpleAction.new('ui-' + name, None)
             action.connect('activate', lambda _a, _p, cb=callback: cb())
             w.add_action(action)
+            self.menu_actions[name] = action
             menu.append(title, 'win.ui-' + name)
         header.pack_end(Gtk.MenuButton(icon_name='view-more-symbolic', menu_model=menu,
                                        tooltip_text='Mais opções'))
@@ -211,6 +214,19 @@ class DesktopView:
         else:
             self.updates_button.remove_css_class('suggested-action')
         self.updates_button.set_tooltip_text('Nova versão disponível' if available else 'Atualizações do aplicativo')
+
+    def set_update_gate(self, locked):
+        """When locked, only Updates and Quit remain usable."""
+        self.update_available(bool(self.owner._available_release) or locked)
+        self.machines_button.set_sensitive(not locked)
+        self.theme_button.set_sensitive(not locked)
+        self.sidebar_toggle.set_sensitive(not locked)
+        for name, action in self.menu_actions.items():
+            action.set_enabled(name in ('updates', 'quit') if locked else True)
+        if locked:
+            self.updates_button.set_visible(True)
+            self.updates_button.add_css_class('suggested-action')
+            self.updates_button.set_tooltip_text('Atualização obrigatória')
 
     def update_theme(self):
         dark = self.manager.get_dark()

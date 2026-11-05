@@ -238,15 +238,22 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
     release = updates.Release('v6.0.0-beta.8', 100)
     with patch.object(updates, 'check_updates', return_value=release), \
             patch.object(updates, 'installed_application', return_value=True):
-        win.open_updates()
-        drain()
+        win._available_release = release
+        win.refresh_update_gate()
+        assert win.update_gate_active() and not win.form.get_sensitive()
+        assert win.connect_btn.get_label() == 'Atualizar para continuar'
+        count = win._connection_generation
+        win.do_connect()
+        assert count == win._connection_generation and win._update_window
         dialog = win._update_window
+        drain()
         assert dialog.release == release and dialog.notes.get_visible()
         assert dialog.action.get_label() == 'Baixar e atualizar'
-        # Session startup also blocks an update, even before the RDP process exists.
+        # A busy session is cancelled so the update can proceed.
         win._launching = True
-        dialog.install()
-        assert not win._updating and 'Desconecte' in dialog.status.get_text()
+        with patch.object(win, 'cancel_connection') as cancel:
+            dialog.install()
+            cancel.assert_called_once()
         win._launching = False
         def cancelled(release, cancel, progress):
             progress('download', .5)
@@ -259,7 +266,7 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
             assert abs(dialog.progress.get_fraction() - .5) < .01
             dialog.cancel_download()
             drain()
-            assert not win._updating and win.form.get_sensitive()
+            assert not win._updating and win.update_gate_active()
             assert 'cancelado' in dialog.status.get_text()
         finish = threading.Event()
         def installed(release, cancel, progress):
@@ -276,7 +283,9 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
             assert win._update_ready and not win._updating and not win.form.get_sensitive()
             assert dialog.action.get_label() == 'Reiniciar aplicativo'
             count = win._connection_generation
-            win.do_connect()
+            with patch.object(win, 'restart_application') as restart:
+                win.do_connect()
+                restart.assert_called_once()
             assert count == win._connection_generation
         with patch.object(gui.subprocess, 'Popen') as launch, \
                 patch.object(win, 'get_application', return_value=Mock()) as application:
@@ -286,10 +295,12 @@ with patch.object(gui, 'secret', return_value=''), patch.object(gui, 'detect_mon
         win._closing = False
         dialog.close()
         win._update_ready = False
+        win._available_release = None
+        win.refresh_update_gate()
         win.finish_connection()
     win.close()
     drain()
-print('PASS GTK updates: discovery/error, busy session, cancel/progress, installation and restart')
+print('PASS GTK updates: mandatory gate, discovery/error, cancel/progress, installation and restart')
 '''
 
 

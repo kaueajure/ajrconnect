@@ -480,6 +480,51 @@ class MainWindow(Adw.ApplicationWindow):
     def connection_busy(self):
         return bool(self.proc or self._launching or self._retry_source)
 
+    def update_gate_active(self):
+        """Installed builds must update before any other work when a release is waiting."""
+        if self._updating or self._update_ready:
+            return True
+        return bool(self._available_release) and updates.installed_application()
+
+    def refresh_update_gate(self):
+        if self._closing:
+            return
+        locked = self.update_gate_active()
+        if locked and self._available_release and self.connection_busy() and not self._updating:
+            self.cancel_connection()
+        if hasattr(self, 'ui'):
+            self.ui.set_update_gate(locked)
+        if self._updating:
+            self.form.set_sensitive(False)
+            self.connect_btn.set_sensitive(False)
+            return
+        if self._update_ready:
+            self.form.set_sensitive(False)
+            self.connect_btn.set_sensitive(True)
+            self.connect_btn.set_label('Reiniciar aplicativo')
+            self.connect_btn.add_css_class('suggested-action')
+            self.set_status('Reinicie para concluir a atualização',
+                'A nova versão já foi instalada. Reinicie o AJR Connect para usá-la.',
+                'system-reboot-symbolic')
+            return
+        if locked and self._available_release:
+            version = self._available_release.tag.removeprefix('v')
+            self.form.set_sensitive(False)
+            self.connect_btn.set_sensitive(True)
+            self.connect_btn.set_label('Atualizar para continuar')
+            self.connect_btn.add_css_class('suggested-action')
+            self.controls.set_visible(False)
+            self.set_status('Atualização obrigatória',
+                f'A versão {version} está disponível. Atualize para continuar usando o AJR Connect.',
+                'software-update-available-symbolic')
+            return
+        if not self.connection_busy():
+            self.form.set_sensitive(True)
+            self.connect_btn.set_sensitive(True)
+            self.connect_btn.set_label('Conectar ao Windows')
+            self.connect_btn.add_css_class('suggested-action')
+            self.schedule_status()
+
     def open_updates(self):
         if self._update_window:
             self._update_window.present()
@@ -521,11 +566,12 @@ class MainWindow(Adw.ApplicationWindow):
                         self.update_channel() != channel or not release:
                     return
                 self._available_release = release
-                self.ui.update_available(True)
-                toast = Adw.Toast(title='Nova versão disponível: ' + release.tag.removeprefix('v'),
-                                  button_label='Atualizar')
+                self.refresh_update_gate()
+                toast = Adw.Toast(title='Atualização obrigatória: ' + release.tag.removeprefix('v'),
+                                  button_label='Atualizar', timeout=0)
                 toast.connect('button-clicked', lambda *_: self.open_updates())
                 self.toast.add_toast(toast)
+                self.open_updates()
             GLib.idle_add(done)
         threading.Thread(target=worker, daemon=True).start()
         return GLib.SOURCE_REMOVE
@@ -558,6 +604,8 @@ class MainWindow(Adw.ApplicationWindow):
         server = self.server.get_text().strip()
         if hasattr(self, 'ui'):
             self.ui.update_summary()
+        if self.update_gate_active():
+            return
         if not server:
             if not self.connection_busy() and not self._updating:
                 self.set_status('Configure sua conexão', 'Informe o servidor para começar.')
@@ -573,7 +621,7 @@ class MainWindow(Adw.ApplicationWindow):
                 online = False
             def done():
                 if not self._closing and generation == self._status_generation and not self.connection_busy() \
-                        and not self._updating and not self._update_ready:
+                        and not self.update_gate_active():
                     self.set_status('Servidor disponível' if online else 'Servidor indisponível',
                         server if online else 'Confira o endereço e se o Windows está ligado.',
                         'network-transmit-receive-symbolic' if online else 'network-offline-symbolic')
@@ -586,7 +634,15 @@ class MainWindow(Adw.ApplicationWindow):
         self._status_source = GLib.timeout_add(250, start_check)
 
     def do_connect(self):
-        if self._updating or self._update_ready or self._machine_action:
+        if self._machine_action:
+            return
+        if self._update_ready:
+            self.restart_application()
+            return
+        if self._available_release and self.update_gate_active():
+            self.open_updates()
+            return
+        if self._updating:
             return
         if self.connection_busy():
             self.cancel_connection()
@@ -774,12 +830,16 @@ class MainWindow(Adw.ApplicationWindow):
         if getattr(self, 'tray', None):
             self.tray.set_connected(False)
         self.controls.set_visible(False)
-        self.form.set_sensitive(True)
-        self.connect_btn.set_sensitive(True)
-        self.connect_btn.set_label('Conectar ao Windows')
-        self.connect_btn.add_css_class('suggested-action')
-        self.set_status(status, 'Você pode conectar novamente.')
         self.show_error(error)
+        if self.update_gate_active():
+            self.refresh_update_gate()
+        else:
+            self.form.set_sensitive(True)
+            self.connect_btn.set_sensitive(True)
+            self.connect_btn.set_label('Conectar ao Windows')
+            self.connect_btn.add_css_class('suggested-action')
+            self.set_status(status, 'Você pode conectar novamente.')
+            self.refresh_update_gate()
         if self._quit_after_disconnect:
             self._quit_after_disconnect = False
             self._finalize_quit()
@@ -944,6 +1004,10 @@ class MainWindow(Adw.ApplicationWindow):
                 dialog.close()
 
     def open_memory_monitor(self, *_):
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de gerenciar a RAM da VM.')
+            self.open_updates()
+            return
         if self._ram_guide:
             self._ram_guide.present()
             return
@@ -982,6 +1046,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.poll_memory(force=True)
 
     def apply_vm_memory_limit(self, *_):
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de alterar a RAM da VM.')
+            self.open_updates()
+            return
         self.persist()
         if not self.cfg['ram_alert']:
             self.show_error('Ative Limitar RAM da VM antes de aplicar o teto.')
@@ -1135,14 +1203,19 @@ class MainWindow(Adw.ApplicationWindow):
         Gio.AppInfo.launch_default_for_uri(path.as_uri(), None)
 
     def open_machines(self, *_):
-        if self._updating or self._update_ready:
-            self.show_error('Aguarde a atualização terminar para controlar uma máquina.')
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de controlar máquinas.')
+            self.open_updates()
             return
         if not self._machine_window:
             self._machine_window = MachineWindow(self)
         self._machine_window.present()
 
     def export_connections(self, *_):
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de exportar conexões.')
+            self.open_updates()
+            return
         payload = export_profiles(self.cfg)
         if not payload['profiles']:
             self.toast.add_toast(Adw.Toast(title='Não há conexões salvas para exportar.'))
@@ -1172,8 +1245,12 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.save(self, None, saved)
 
     def import_connections(self, *_):
-        if self.connection_busy() or self._updating:
-            self.show_error('Desconecte ou aguarde a atualização antes de importar conexões.')
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de importar conexões.')
+            self.open_updates()
+            return
+        if self.connection_busy():
+            self.show_error('Desconecte antes de importar conexões.')
             return
         dialog = Gtk.FileDialog(title='Importar conexões')
         filters = Gio.ListStore.new(Gtk.FileFilter)
@@ -1203,6 +1280,10 @@ class MainWindow(Adw.ApplicationWindow):
         dialog.open(self, None, opened)
 
     def open_diagnostics(self, *_):
+        if self.update_gate_active():
+            self.show_error('Atualize o AJR Connect antes de coletar diagnóstico.')
+            self.open_updates()
+            return
         self.toast.add_toast(Adw.Toast(title='Coletando diagnóstico…'))
         cfg = copy.deepcopy(self.cfg)
         portal = self.keyboard_portal

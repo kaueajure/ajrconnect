@@ -83,10 +83,11 @@ class UpdateWindow(Adw.Window):
                               update_prereleases=channel == 'testing')
         self.owner.persist()
         if widget == self.channel:
-            self.release = None
-            self.owner._available_release = None
-            self.owner.ui.update_available(False)
+            # Keep the gate until a fresh check confirms there is no update.
             self.status.set_text('Verifique novamente para aplicar o canal escolhido.')
+            if self.phase == 'idle':
+                self.check()
+                return
         self.show_release()
 
     def show_release(self):
@@ -96,7 +97,8 @@ class UpdateWindow(Adw.Window):
             self.status.set_text('Atualização instalada. Reinicie o aplicativo para usar a nova versão.')
             self.action.set_label('Reiniciar aplicativo')
         elif self.release:
-            self.status.set_text('Nova versão disponível: ' + self.release.tag.removeprefix('v'))
+            self.status.set_text('Atualização obrigatória: ' + self.release.tag.removeprefix('v')
+                                 + '. Atualize para continuar usando o AJR Connect.')
             self.action.set_label('Baixar e atualizar')
             self.notes.set_uri(self.release.page)
             self.notes.set_visible(True)
@@ -109,6 +111,7 @@ class UpdateWindow(Adw.Window):
             self.notes.set_visible(False)
         self.auto.set_sensitive(self.phase == 'idle')
         self.channel.set_sensitive(self.phase == 'idle')
+        self.owner.refresh_update_gate()
 
     def activate(self, *_):
         if self.phase == 'ready':
@@ -139,7 +142,6 @@ class UpdateWindow(Adw.Window):
                     return
                 self.phase, self.release = 'idle', release
                 self.owner._available_release = release
-                self.owner.ui.update_available(bool(release))
                 self.action.set_sensitive(True)
                 self.status.set_text(message)
                 self.show_release()
@@ -150,12 +152,11 @@ class UpdateWindow(Adw.Window):
         if self.phase != 'idle' or self.owner._updating or self.owner._update_ready:
             return
         if self.owner.connection_busy():
-            self.status.set_text('Desconecte do Windows ou cancele a reconexão antes de atualizar.')
-            return
+            self.owner.cancel_connection()
+            self.status.set_text('Desconectando a sessão para aplicar a atualização…')
         self.owner.persist()
         self.owner._updating = True
-        self.owner.form.set_sensitive(False)
-        self.owner.connect_btn.set_sensitive(False)
+        self.owner.refresh_update_gate()
         self.phase = 'download'
         self.cancel.clear()
         self.action.set_sensitive(False)
@@ -190,8 +191,6 @@ class UpdateWindow(Adw.Window):
                 self.owner._updating = False
                 self.progress.set_visible(False)
                 self.cancel_button.set_visible(False)
-                self.owner.form.set_sensitive(not self.owner.connection_busy())
-                self.owner.connect_btn.set_sensitive(True)
                 if error:
                     self.phase = 'idle'
                     self.status.set_text(message)
@@ -200,7 +199,6 @@ class UpdateWindow(Adw.Window):
                 self.owner._update_ready = True
                 self.release = None
                 self.owner._available_release = None
-                self.owner.ui.update_available(False)
                 self.phase = 'ready'
                 self.status.set_text(message + ' Reinicie o aplicativo para usar a nova versão.')
                 self.show_release()
